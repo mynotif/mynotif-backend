@@ -8,6 +8,7 @@ from nurse.views import (
     PrescriptionFileView,
     PrescriptionViewSet,
     ProfileView,
+    UserOneSignalProfileViewSet,
     UserViewSet,
 )
 
@@ -16,6 +17,7 @@ router.register("patient", PatientViewSet)
 router.register("prescription", PrescriptionViewSet)
 router.register("nurse", NurseViewSet)
 router.register("user", UserViewSet)
+router.register("onesignal", UserOneSignalProfileViewSet)
 
 urlpatterns = [
     path("profile/", ProfileView.as_view(), name="profile"),

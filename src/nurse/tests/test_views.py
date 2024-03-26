@@ -14,7 +14,7 @@ from moto import mock_aws
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from nurse.models import Nurse, Patient, Prescription
+from nurse.models import Nurse, Patient, Prescription, UserOneSignalProfile
 
 USERNAME = "username1"
 PASSWORD = "password1"
@@ -784,3 +784,58 @@ class TestAdminNotificationView:
         assert response.json() == {
             "detail": "You do not have permission to perform this action."
         }
+
+
+@pytest.fixture
+def one_signal_profile(user):
+    userDetail = UserOneSignalProfile.objects.create(
+        user=user, subscription_id="123456789"
+    )
+    yield userDetail
+    userDetail.delete()
+
+
+@pytest.fixture
+def one_signal_profile2(another_user):
+    oneSignal = UserOneSignalProfile.objects.create(
+        user=another_user, subscription_id="987654321"
+    )
+    yield oneSignal
+    oneSignal.delete()
+
+
+@pytest.fixture
+def another_user(db):
+    user = User.objects.create_user(
+        username="username2", email="user2@example.com", password="testpass123"
+    )
+    yield user
+    user.delete()
+
+
+@pytest.mark.django_db
+class TestUserOneSignalProfileView:
+    url = reverse_lazy("useronesignalprofile-list")
+
+    def test_endpoint_onesignal(self):
+        assert self.url == "/onesignal/"
+
+    def test_create_onesignal(self, client, user):
+        data = {"subscription_id": "1233456789"}
+        client.force_authenticate(user=user)
+        assert UserOneSignalProfile.objects.count() == 0
+        response = client.post(self.url, data, format="json")
+        assert response.status_code == status.HTTP_201_CREATED
+        assert UserOneSignalProfile.objects.count() == 1
+        profile = UserOneSignalProfile.objects.first()
+        assert response.data["user"] == user.id
+        assert profile.subscription_id == data["subscription_id"]
+
+    def test_read_onesignal_list(
+        self, client, user, one_signal_profile, one_signal_profile2
+    ):
+        client.force_authenticate(user=user)
+        response = client.get(self.url)
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.data) == 1
+        assert response.data[0]["subscription_id"] == one_signal_profile.subscription_id
