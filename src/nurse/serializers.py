@@ -1,7 +1,7 @@
 from django.contrib.auth.models import User
 from rest_framework import serializers
 
-from nurse.models import Nurse, Patient, Prescription
+from nurse.models import Nurse, Patient, Prescription, UserOneSignalProfile
 
 
 class PatientSerializer(serializers.ModelSerializer):
@@ -73,3 +73,10 @@ class UserSerializer(serializers.ModelSerializer):
         # was created without the associated nurse
         nurse, _ = Nurse.objects.get_or_create(user_id=obj.id)
         return NurseSerializer(nurse).data
+
+
+class UserOneSignalProfileSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = UserOneSignalProfile
+        fields = ["subscription_id", "user"]
+        extra_kwargs = {"user": {"read_only": True}}

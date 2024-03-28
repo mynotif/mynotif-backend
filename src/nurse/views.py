@@ -1,4 +1,5 @@
 from django.contrib.auth.models import User
+from django.shortcuts import get_object_or_404
 from rest_framework import generics, mixins, status, viewsets
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import AllowAny, IsAdminUser, IsAuthenticated
@@ -6,12 +7,13 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from nurse.management.commands._notifications import notify
-from nurse.models import Nurse, Patient, Prescription
+from nurse.models import Nurse, Patient, Prescription, UserOneSignalProfile
 from nurse.serializers import (
     NurseSerializer,
     PatientSerializer,
     PrescriptionFileSerializer,
     PrescriptionSerializer,
+    UserOneSignalProfileSerializer,
     UserSerializer,
 )
 
@@ -55,6 +57,38 @@ class PrescriptionFileView(generics.UpdateAPIView):
 class NurseViewSet(viewsets.ModelViewSet):
     queryset = Nurse.objects.all()
     serializer_class = NurseSerializer
+
+
+class UserOneSignalProfileViewSet(mixins.CreateModelMixin, viewsets.GenericViewSet):
+    queryset = UserOneSignalProfile.objects.all()
+    serializer_class = UserOneSignalProfileSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return UserOneSignalProfile.objects.filter(user=self.request.user)
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save(user=request.user)
+        headers = self.get_success_headers(serializer.data)
+        return Response(
+            serializer.data, status=status.HTTP_201_CREATED, headers=headers
+        )
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+
+        profile = queryset.first()
+        if profile:
+            serializer = self.get_serializer(profile)
+            return Response([serializer.data])
+        return Response([])
+
+    def retrieve(self, request, *args, **kwargs):
+        obj = get_object_or_404(self.get_queryset(), user=request.user)
+        serializer = self.get_serializer(obj)
+        return Response(serializer.data)
 
 
 class ProfileView(APIView):
