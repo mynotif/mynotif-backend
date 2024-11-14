@@ -127,6 +127,7 @@ requests==2.32.3
     # via
     #   requests-oauthlib
     #   social-auth-core
+    #   stripe
 requests-oauthlib==2.0.0
     # via social-auth-core
 rpds-py==0.22.3
@@ -147,6 +148,10 @@ social-auth-core==4.5.4
     # via social-auth-app-django
 sqlparse==0.5.2
     # via django
+stripe==11.3.0
+    # via mynotif (setup.py)
+typing-extensions==4.12.2
+    # via stripe
 uritemplate==4.1.1
     # via drf-spectacular
 urllib3==2.2.3
