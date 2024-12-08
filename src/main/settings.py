@@ -67,6 +67,7 @@ THIRDPARTY_APP = (
 CUSTOM_APPS = (
     "main",
     "nurse",
+    "payment",
 )
 
 INSTALLED_APPS = DJANGO_CORE_APP + THIRDPARTY_APP + CUSTOM_APPS
@@ -246,3 +247,9 @@ if SENTRY_DSN := os.environ.get("SENTRY_DSN"):
         # django.contrib.auth) you may enable sending PII data.
         send_default_pii=True,
     )
+
+# STRIPE
+STRIPE_PUBLIC_KEY = os.environ.get("STRIPE_PUBLIC_KEY", "")
+STRIPE_API_KEY = os.environ.get("STRIPE_API_KEY", "")
+STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
+STRIPE_API_VERSION = os.environ.get("STRIPE_API_VERSION", "")
