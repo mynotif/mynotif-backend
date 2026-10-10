@@ -10,7 +10,7 @@ PYTHON_WITH_VERSION=python$(PYTHON_VERSION)
 PYTHON=$(VIRTUAL_ENV)/bin/python
 ISORT=$(VIRTUAL_ENV)/bin/isort
 FLAKE8=$(VIRTUAL_ENV)/bin/flake8
-BLACK=$(VIRTUAL_ENV)/bin/black
+RUFF=$(VIRTUAL_ENV)/bin/ruff
 PYTEST=$(VIRTUAL_ENV)/bin/pytest
 NODE_PRETTIER=npx prettier
 PORT?=8000
@@ -60,8 +60,8 @@ lint/isort:
 lint/flake8:
 	$(FLAKE8) $(SOURCES)
 
-lint/black:
-	$(BLACK) --check $(SOURCES)
+lint/ruff:
+	$(RUFF) format --check $(SOURCES)
 
 lint/terraform:
 	terraform -chdir=terraform fmt -recursive -diff -check
@@ -69,13 +69,13 @@ lint/terraform:
 lint/nodeprettier:
 	$(NODE_PRETTIER) --check *.md *.yml .github/ src/
 
-lint: lint/isort lint/flake8 lint/black lint/terraform lint/nodeprettier
+lint: lint/isort lint/flake8 lint/ruff lint/terraform lint/nodeprettier
 
 format/isort:
 	$(ISORT) $(SOURCES)
 
-format/black:
-	$(BLACK) $(SOURCES)
+format/ruff:
+	$(RUFF) format $(SOURCES)
 
 format/terraform:
 	terraform -chdir=terraform fmt -recursive -diff
@@ -83,7 +83,7 @@ format/terraform:
 format/nodeprettier:
 	$(NODE_PRETTIER) --write *.md *.yml .github/ src/
 
-format: format/isort format/black format/terraform format/nodeprettier
+format: format/isort format/ruff format/terraform format/nodeprettier
 
 test: unittest lint
 

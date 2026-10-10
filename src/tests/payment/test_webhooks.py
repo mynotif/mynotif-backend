@@ -186,9 +186,9 @@ class TestStripeWebhook:
             checkout_session_completed_payload, STRIPE_WEBHOOK_SECRET
         )
 
-        checkout_session_completed_payload["data"]["object"]["metadata"][
-            "user_id"
-        ] = user.id
+        checkout_session_completed_payload["data"]["object"]["metadata"]["user_id"] = (
+            user.id
+        )
         checkout_session_completed_payload["data"]["object"]["id"] = "sub_test_id"
 
         mock_construct_event = mock.Mock(
@@ -266,10 +266,9 @@ class TestStripeWebhook:
     def test_checkout_session_completed_user_does_not_exist(
         self, client, checkout_session_completed_payload
     ):
-
-        checkout_session_completed_payload["data"]["object"]["metadata"][
-            "user_id"
-        ] = "9999"
+        checkout_session_completed_payload["data"]["object"]["metadata"]["user_id"] = (
+            "9999"
+        )
 
         sig_header = generate_stripe_signature(
             checkout_session_completed_payload, STRIPE_WEBHOOK_SECRET

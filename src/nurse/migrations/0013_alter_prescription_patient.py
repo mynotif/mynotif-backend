@@ -10,7 +10,6 @@ def set_default_patient(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("nurse", "0012_prescription_email_doctor"),
     ]

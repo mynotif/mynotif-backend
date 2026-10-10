@@ -17,12 +17,12 @@ def notify_url():
 
 
 def authenticate():
-    assert (
-        notify_username := os.environ.get("NOTIFY_USERNAME")
-    ), "NOTIFY_USERNAME must be set"
-    assert (
-        notify_password := os.environ.get("NOTIFY_PASSWORD")
-    ), "NOTIFY_PASSWORD must be set"
+    assert (notify_username := os.environ.get("NOTIFY_USERNAME")), (
+        "NOTIFY_USERNAME must be set"
+    )
+    assert (notify_password := os.environ.get("NOTIFY_PASSWORD")), (
+        "NOTIFY_PASSWORD must be set"
+    )
     url = api_token_auth_url()
     credentials = {
         "username": notify_username,

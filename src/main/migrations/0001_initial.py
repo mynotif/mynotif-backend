@@ -6,7 +6,6 @@ from main.migrations_helpers import enable_rls_on_all_models
 
 
 class Migration(migrations.Migration):
-
     dependencies = []
 
     operations = [
