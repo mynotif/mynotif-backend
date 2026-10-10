@@ -1,0 +1,5 @@
+# Review — #254
+
+Status: PASS on the updated local diff. Independent reviewer `/root/review_254`, read only. Initial findings: uv sync omitted the editable local package, and Verify lacked CI cold/warm comparison. The editable package was added through `requirements-dev.in`; reviewer verified `mynotif==0.1` editable via package metadata, identical regenerated dev lock, all 55 production pins retained, Docker compatibility, pinned uv and setup-uv action, and `git diff --check`. Verify was corrected and the reviewer confirmed no open code or documentation finding.
+
+The first Lead Tech review found a Major integration defect: Deployment migrations called a Makefile target requiring uv without provisioning uv. The migrations job now installs pinned uv. The first reviewer independently rechecked the new workflow order, manual-only gates, unchanged Docker/Terraform paths, documentation and diff, and returned PASS. CI and final Lead Tech review must run again on the revised PR head. The warm pip CI baseline is unavailable because the old workflow did not cache pip; local warm measurements and that limit are recorded in Verify and the PR description.
