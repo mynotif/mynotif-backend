@@ -30,6 +30,53 @@ make run/dev
 make unittest
 ```
 
+## Continuous integration and deployment
+
+Pushes and pull requests run the `Tests` workflow with read-only repository
+permissions. It installs dependencies, runs lint and the synthetic pytest suite,
+and checks for missing migrations against disposable in-memory SQLite. It does
+not need AWS credentials or a remote database. External services are mocked in
+the tests; Sentry and instance-metadata credential lookup are disabled. CI rejects
+`.env` files in the checkout and its ancestor directories before loading settings.
+Dependency and tooling downloads still require network access. CI pins Black
+to 24.10.0 to match the existing formatting; other development tools are not
+locked by this change.
+
+Coverage is generated locally as `coverage.xml` and HTML by `make unittest`; CI
+no longer uploads it to Codecov or uses its token. The badge above is historical.
+SQLite tests do not establish PostgreSQL or production compatibility. To reproduce
+the checks, use a clean checkout without a `.env`, Python 3.13, Terraform and Node:
+
+```sh
+make virtualenv/test
+venv/bin/python -m pip install black==24.10.0
+make lint
+DATABASE_ENGINE=django.db.backends.sqlite3 DATABASE_NAME=:memory: \
+  DATABASE_HOST= DATABASE_USER= DATABASE_PASSWORD= DATABASE_PORT= \
+  PRODUCTION=0 SENTRY_DSN= AWS_EC2_METADATA_DISABLED=true make unittest
+DATABASE_ENGINE=django.db.backends.sqlite3 DATABASE_NAME=:memory: \
+  DATABASE_HOST= DATABASE_USER= DATABASE_PASSWORD= DATABASE_PORT= \
+  PRODUCTION=0 SENTRY_DSN= AWS_EC2_METADATA_DISABLED=true make run/migrations/check
+```
+
+Use an environment without real provider credentials or inherited application
+configuration. The workflow contains the full synthetic environment. Do not copy
+production configuration to run these checks.
+
+`Deployment` is disabled in repository Actions settings and must remain disabled
+after this change. Its only code trigger is manual `workflow_dispatch`: every
+sensitive job also requires `main` and the `confirm_production` input (false by
+default). A passing CI or merged PR does not authorize deployment. Re-enabling
+and dispatching it require a separate production operation with authorization,
+current CI, backup/migration review and a rollback plan. No production dispatch
+is needed to validate this change.
+
+The first push of a branch changing these workflows must already contain the
+corrected deployment trigger; never publish that branch at the old revision first.
+Before publishing, confirm Deployment is disabled and inspect active runs without
+blindly cancelling them. If reverting the CI change, keep Deployment disabled and
+retain its manual-only gates; do not restore automatic deployment on push.
+
 ## :rotating_light: linting
 
 ```sh
