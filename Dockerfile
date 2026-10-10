@@ -2,13 +2,10 @@ FROM python:3.13-alpine AS base
 
 WORKDIR /app
 
-RUN apk add --update --no-cache \
-    make
-
-COPY Makefile requirements.txt /app/
-RUN make virtualenv
+COPY requirements.txt /app/
+RUN python3.13 -m venv /app/venv && /app/venv/bin/pip install --no-cache-dir -r requirements.txt
 COPY src /app/src
-RUN make run/collectstatic
+RUN /app/venv/bin/python src/manage.py collectstatic --noinput
 
 
 FROM python:3.13-alpine
