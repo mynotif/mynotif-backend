@@ -3,7 +3,7 @@ from django.contrib.auth.models import User
 from django.shortcuts import get_object_or_404
 from django.template.loader import render_to_string
 from rest_framework import generics, mixins, status, viewsets
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import AllowAny, IsAdminUser
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -176,6 +176,17 @@ class PrescriptionFileView(generics.UpdateAPIView):
 class NurseViewSet(viewsets.ModelViewSet):
     queryset = Nurse.objects.all()
     serializer_class = NurseSerializer
+
+    def get_queryset(self):
+        return self.queryset.filter(user=self.request.user)
+
+    def perform_create(self, serializer):
+        nurse, created = Nurse.objects.get_or_create(
+            user=self.request.user, defaults=serializer.validated_data
+        )
+        if not created:
+            raise ValidationError({"user": ["Nurse profile already exists."]})
+        serializer.instance = nurse
 
 
 class UserOneSignalProfileViewSet(mixins.CreateModelMixin, viewsets.GenericViewSet):

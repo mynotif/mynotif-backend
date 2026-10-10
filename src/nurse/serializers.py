@@ -94,6 +94,7 @@ class NurseSerializer(serializers.ModelSerializer):
     class Meta:
         model = Nurse
         fields = "__all__"
+        read_only_fields = ("id", "user", "patients")
 
 
 class UserSerializer(serializers.ModelSerializer):
