@@ -38,9 +38,8 @@ and checks for missing migrations against disposable in-memory SQLite. It does
 not need AWS credentials or a remote database. External services are mocked in
 the tests; Sentry and instance-metadata credential lookup are disabled. CI rejects
 `.env` files in the checkout and its ancestor directories before loading settings.
-Dependency and tooling downloads still require network access. CI pins Black
-to 24.10.0 to match the existing formatting; other development tools are not
-locked by this change.
+Dependency and tooling downloads still require network access. The development
+extra pins Ruff to 0.14.1; other development tools are not locked by this change.
 
 Coverage is generated locally as `coverage.xml` and HTML by `make unittest`; CI
 no longer uploads it to Codecov or uses its token. The badge above is historical.
@@ -49,7 +48,6 @@ the checks, use a clean checkout without a `.env`, Python 3.13, Terraform and No
 
 ```sh
 make virtualenv/test
-venv/bin/python -m pip install black==24.10.0
 make lint
 DATABASE_ENGINE=django.db.backends.sqlite3 DATABASE_NAME=:memory: \
   DATABASE_HOST= DATABASE_USER= DATABASE_PASSWORD= DATABASE_PORT= \
@@ -83,6 +81,10 @@ retain its manual-only gates; do not restore automatic deployment on push.
 make lint
 make format
 ```
+
+Python formatting uses Ruff 0.14.1 (`make lint/ruff` checks without writing;
+`make format/ruff` applies formatting). isort and Flake8 remain separate lint
+checks with their existing rules. Terraform and Prettier checks are unchanged.
 
 ## Requirements bump
 

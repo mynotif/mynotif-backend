@@ -42,10 +42,6 @@ jobs:
               raise SystemExit("A .env file must not be loaded by CI")
           PY
       - run: make virtualenv/test
-      - name: Use the formatter version matching the existing codebase
-        run: |
-          venv/bin/python -m pip install black==24.10.0
-          venv/bin/black --version
       - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
         with:
           terraform_wrapper: false

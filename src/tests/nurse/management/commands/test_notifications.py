@@ -78,10 +78,12 @@ def base_prescriptions():
 class TestNotifications:
     @pytest.mark.django_db
     def test_notify(self, base_prescriptions):
-        with mock.patch(
-            f"{client_path}.send_notification"
-        ) as mock_send_notification, override_settings(
-            ONESIGNAL_APP_ID="ONESIGNAL_APP_ID", ONESIGNAL_API_KEY="ONESIGNAL_API_KEY"
+        with (
+            mock.patch(f"{client_path}.send_notification") as mock_send_notification,
+            override_settings(
+                ONESIGNAL_APP_ID="ONESIGNAL_APP_ID",
+                ONESIGNAL_API_KEY="ONESIGNAL_API_KEY",
+            ),
         ):
             _notifications.notify()
         expected_include_subscription_ids = ["123", "456", "789"]
@@ -109,10 +111,12 @@ class TestNotifications:
         library as the payload gets serialized.
         """
         mock_httpx_send = mock.Mock(return_value=mock.Mock(status_code=200))
-        with mock.patch(
-            "httpx.Client.send", mock_httpx_send
-        ) as mock_httpx_send, override_settings(
-            ONESIGNAL_APP_ID="ONESIGNAL_APP_ID", ONESIGNAL_API_KEY="ONESIGNAL_API_KEY"
+        with (
+            mock.patch("httpx.Client.send", mock_httpx_send) as mock_httpx_send,
+            override_settings(
+                ONESIGNAL_APP_ID="ONESIGNAL_APP_ID",
+                ONESIGNAL_API_KEY="ONESIGNAL_API_KEY",
+            ),
         ):
             _notifications.notify()
         # retrieve the request object from the mock
@@ -129,19 +133,24 @@ class TestNotifications:
         cannot access local variable where it is not associated with a value
         ```
         """
-        with mock.patch(
-            f"{client_path}.send_notification"
-        ) as mock_send_notification, override_settings(
-            ONESIGNAL_APP_ID="ONESIGNAL_APP_ID", ONESIGNAL_API_KEY="ONESIGNAL_API_KEY"
+        with (
+            mock.patch(f"{client_path}.send_notification") as mock_send_notification,
+            override_settings(
+                ONESIGNAL_APP_ID="ONESIGNAL_APP_ID",
+                ONESIGNAL_API_KEY="ONESIGNAL_API_KEY",
+            ),
         ):
             _notifications.notify()
         assert mock_send_notification.call_count == 0
 
     def test_get_client_with_valid_settings(self):
-        with override_settings(
-            ONESIGNAL_APP_ID=ONESIGNAL_APP_ID,
-            ONESIGNAL_API_KEY=ONESIGNAL_API_KEY,
-        ), mock.patch(client_path) as mock_client:
+        with (
+            override_settings(
+                ONESIGNAL_APP_ID=ONESIGNAL_APP_ID,
+                ONESIGNAL_API_KEY=ONESIGNAL_API_KEY,
+            ),
+            mock.patch(client_path) as mock_client,
+        ):
             client = _notifications.get_client()
 
             mock_client.assert_called_once_with(
@@ -157,8 +166,11 @@ class TestNotifications:
         ],
     )
     def test_get_client_with_missing_settings(self, app_id, api_key, expected_error):
-        with override_settings(
-            ONESIGNAL_APP_ID=app_id,
-            ONESIGNAL_API_KEY=api_key,
-        ), pytest.raises(AssertionError, match=expected_error):
+        with (
+            override_settings(
+                ONESIGNAL_APP_ID=app_id,
+                ONESIGNAL_API_KEY=api_key,
+            ),
+            pytest.raises(AssertionError, match=expected_error),
+        ):
             _notifications.get_client()
