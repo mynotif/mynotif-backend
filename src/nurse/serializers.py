@@ -68,6 +68,15 @@ class PrescriptionSerializer(DynamicFieldsModelSerializer):
         fields = "__all__"
         read_only_fields = ("id", "photo_prescription")
 
+    def get_fields(self):
+        fields = super().get_fields()
+        user = getattr(self.context.get("request"), "user", None)
+        patients = Patient.objects.none()
+        if user is not None and user.is_authenticated:
+            patients = Patient.objects.filter(nurse__user=user)
+        fields["patient"].queryset = patients
+        return fields
+
     def get_is_valid(self, obj):
         return obj.is_valid()
 

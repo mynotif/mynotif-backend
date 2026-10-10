@@ -481,8 +481,9 @@ class TestPrescription:
     def test_endpoint(self):
         assert self.url == "/api/v1/prescription/"
 
-    def test_create_prescription(self, client):
+    def test_create_prescription(self, client, user):
         patient = Patient.objects.create(**patient_data)
+        Nurse.objects.get_or_create(user=user)[0].patients.add(patient)
         data = {**self.data, **{"patient": patient.id}}
         response = client.post(self.url, data, format="json")
         assert response.status_code == status.HTTP_201_CREATED
@@ -495,13 +496,14 @@ class TestPrescription:
         assert prescription.patient.id == patient.id
 
     @override_settings(FREE_PRESCRIPTION_LIMIT=2)
-    def test_non_subscribed_user_cannot_exceed_prescription_limit(self, client):
+    def test_non_subscribed_user_cannot_exceed_prescription_limit(self, client, user):
         """
         Ensure that a non-subscribed
         user cannot create more prescription than the allowed limit.
         """
         LIMIT = settings.FREE_PRESCRIPTION_LIMIT
         patient = Patient.objects.create(**patient_data)
+        Nurse.objects.get_or_create(user=user)[0].patients.add(patient)
         data = {**self.data, **{"patient": patient.id}}
         for _ in range(LIMIT):
             response = client.post(self.url, data, format="json")
@@ -522,6 +524,7 @@ class TestPrescription:
             user=user, stripe_subscription_id="session_id_example", active=True
         )
         patient = Patient.objects.create(**patient_data)
+        Nurse.objects.get_or_create(user=user)[0].patients.add(patient)
         data = {**self.data, **{"patient": patient.id}}
         for _ in range(LIMIT + 1):
             response = client.post(self.url, data, format="json")
@@ -615,9 +618,10 @@ class TestPrescription:
         assert response.data is None
         assert Prescription.objects.count() == 0
 
-    # TODO: only allow to upload to prescription we own (and test that), refs #64 & #67
-    def test_prescription_upload(self, s3_mock, client):
+    # Access checks are covered in test_prescription_access.py.
+    def test_prescription_upload(self, s3_mock, client, user):
         patient = Patient.objects.create(**patient_data)
+        Nurse.objects.get_or_create(user=user)[0].patients.add(patient)
         data = {**self.data, **{"patient": patient}}
         prescription = Prescription.objects.create(**data)
         assert prescription.photo_prescription.name == ""

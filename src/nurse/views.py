@@ -172,6 +172,12 @@ class PrescriptionFileView(generics.UpdateAPIView):
     queryset = Prescription.objects.all()
     serializer_class = PrescriptionFileSerializer
 
+    def get_queryset(self):
+        user = getattr(self.request, "user", None)
+        if user is None or not user.is_authenticated:
+            return self.queryset.none()
+        return self.queryset.filter(patient__nurse__user=user)
+
 
 class NurseViewSet(viewsets.ModelViewSet):
     queryset = Nurse.objects.all()
