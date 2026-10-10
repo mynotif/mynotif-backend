@@ -1,0 +1,3 @@
+# Design — #254
+
+Status: PASS. Use uv 0.11.12 for local development and the Tests workflow. Generate a committed `requirements-dev.txt` from `requirements-dev.in` containing `-e .[dev]`, constrained by unchanged production `requirements.txt`, for Python 3.13. `uv pip sync` gives an exact dev environment including the editable local package, as before; production installation uses existing pinned `requirements.txt`. CI pins uv and caches its downloads. Keep Docker on pip with the same production lock, and Lambda on its existing Python 3.12 requirements. No application dependency or API change. The checked-in production lock remains the Docker contract; Makefile lock regeneration uses uv without automatically upgrading dependencies.

@@ -41,6 +41,12 @@ jobs:
           if any((parent / ".env").exists() for parent in parents):
               raise SystemExit("A .env file must not be loaded by CI")
           PY
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.11.12"
+          enable-cache: true
+          cache-dependency-glob: requirements*.txt
+      - run: make lock/check
       - run: make virtualenv/test
       - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
         with:

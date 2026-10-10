@@ -13,6 +13,11 @@
 
 ## Install
 
+Install Python 3.13 and uv 0.11.12 first. `make` checks the uv version. From a
+clean checkout, the development environment is synchronized from the committed
+`requirements-dev.txt` lock, including the editable local package and production
+pins in `requirements.txt`:
+
 ```sh
 make virtualenv/test
 cp .env.example .env
@@ -38,13 +43,15 @@ and checks for missing migrations against disposable in-memory SQLite. It does
 not need AWS credentials or a remote database. External services are mocked in
 the tests; Sentry and instance-metadata credential lookup are disabled. CI rejects
 `.env` files in the checkout and its ancestor directories before loading settings.
-Dependency and tooling downloads still require network access. The development
-extra pins Ruff to 0.14.1; other development tools are not locked by this change.
+Dependency and tooling downloads still require network access. CI pins uv 0.11.12
+and caches uv downloads by the requirements files. The dev lock pins Ruff and
+the other Python test tools. It is generated for Python 3.13.
 
 Coverage is generated locally as `coverage.xml` and HTML by `make unittest`; CI
 no longer uploads it to Codecov or uses its token. The badge above is historical.
 SQLite tests do not establish PostgreSQL or production compatibility. To reproduce
-the checks, use a clean checkout without a `.env`, Python 3.13, Terraform and Node:
+the checks, use a clean checkout without a `.env`, Python 3.13, uv 0.11.12,
+Terraform and Node:
 
 ```sh
 make virtualenv/test
@@ -88,13 +95,20 @@ checks with their existing rules. Terraform and Prettier checks are unchanged.
 
 ## Requirements bump
 
+The production lock is `requirements.txt`; `requirements-dev.txt` adds pinned
+development tools while constraining all shared packages to production versions.
+CI runs `make lock/check` to catch stale dev pins. Review lock diffs before
+committing them. Regenerate only the intended lock:
+
 ```sh
 make -B requirements.txt
+make -B requirements-dev.txt
 ```
 
-The project has automated handling of production requirements, the idea behind it is that
-you should always use the latest versions of every requirement.
-`pip-compile` is used to handle it.
+These commands use `uv pip compile`; neither requests a dependency upgrade by
+default. Docker continues to install the production lock with pip, without uv
+in the runtime image. Lambda packaging continues to use its existing Python
+3.12 `src/lambdas/requirements.txt` lock.
 
 ## Docker
 

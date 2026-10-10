@@ -1,7 +1,7 @@
 VIRTUAL_ENV?=venv
 VERSION=$(shell git describe --tags --always)
-PIP=$(VIRTUAL_ENV)/bin/pip
-PIP_COMPILE=$(VIRTUAL_ENV)/bin/pip-compile
+UV?=uv
+UV_VERSION=0.11.12
 GUNICORN=$(VIRTUAL_ENV)/bin/gunicorn
 PYTHON_MAJOR_VERSION=3
 PYTHON_MINOR_VERSION=13
@@ -30,23 +30,30 @@ APPRUNNER_ARN=arn:aws:apprunner:$(REGION):$(AWS_ACCOUNT_ID):service/$(APP_NAME)-
 
 all: virtualenv
 
-$(VIRTUAL_ENV):
-	$(PYTHON_WITH_VERSION) -m venv $(VIRTUAL_ENV)
-	$(PYTHON) -m pip install --upgrade pip setuptools
+check/uv:
+	@test "$$($(UV) --version | awk '{print $$2}')" = "$(UV_VERSION)" || { echo "uv $(UV_VERSION) required" >&2; exit 1; }
 
-virtualenv: $(VIRTUAL_ENV)
-	$(PIP) install --requirement requirements.txt
+$(VIRTUAL_ENV): | check/uv
+	$(UV) venv --python $(PYTHON_VERSION) $(VIRTUAL_ENV)
+
+virtualenv: check/uv $(VIRTUAL_ENV)
+	$(UV) pip install --python $(PYTHON) --requirement requirements.txt
 
 virtualenv/test: virtualenv
-	$(PIP) install -e .[dev]
+	$(UV) pip sync --python $(PYTHON) requirements-dev.txt
 
-requirements.txt: | $(VIRTUAL_ENV)
-	$(PYTHON) -m pip install --upgrade pip-tools
-	$(PIP_COMPILE) --upgrade --no-strip-extras --output-file $@
+requirements.txt: check/uv
+	$(UV) pip compile setup.py --python-version $(PYTHON_VERSION) --no-strip-extras --output-file $@
 
-src/lambdas/requirements.txt: | $(VIRTUAL_ENV)
-	$(PYTHON) -m pip install --upgrade pip-tools
-	$(PIP_COMPILE) src/lambdas/requirements.in --upgrade --no-strip-extras --output-file $@
+requirements-dev.txt: check/uv
+	$(UV) pip compile requirements-dev.in --constraint requirements.txt --python-version $(PYTHON_VERSION) --output-file $@
+
+lock/check: check/uv
+	$(UV) pip compile requirements-dev.in --constraint requirements.txt --python-version $(PYTHON_VERSION) --output-file requirements-dev.txt
+	git diff --exit-code -- requirements-dev.txt
+
+src/lambdas/requirements.txt: check/uv
+	$(UV) pip compile src/lambdas/requirements.in --python-version 3.12 --no-strip-extras --output-file $@
 
 clean:
 	rm -rf venv/ .pytest_cache/
