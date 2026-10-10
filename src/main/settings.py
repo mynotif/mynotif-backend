@@ -168,6 +168,7 @@ USE_TZ = True
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
 STATIC_URL = "/static/"
+AUTH_USER_MODEL = "nurse.Nurse"
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/3.2/ref/settings/#default-auto-field
