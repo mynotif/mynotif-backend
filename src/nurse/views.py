@@ -1,13 +1,20 @@
+from datetime import timedelta
+
 from django.conf import settings
 from django.contrib.auth.models import User
 from django.shortcuts import get_object_or_404
 from django.template.loader import render_to_string
+from django.utils import timezone
+from drf_spectacular.utils import OpenApiTypes, extend_schema
 from rest_framework import generics, mixins, status, viewsets
-from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.decorators import action
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.permissions import AllowAny, IsAdminUser
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
+from main.session_serializers import PrivateFileURLSerializer, SessionErrorSerializer
 from nurse.management.commands._notifications import notify
 from nurse.models import Nurse, Patient, Prescription, UserOneSignalProfile
 from nurse.serializers import (
@@ -16,9 +23,10 @@ from nurse.serializers import (
     PatientSerializer,
     PrescriptionEmailSerializer,
     PrescriptionFileSerializer,
+    ProfileSerializer,
+    RegistrationSerializer,
+    RegistrationSerializerV1,
     UserOneSignalProfileSerializer,
-    UserSerializer,
-    UserSerializerV2,
 )
 from nurse.utils.constants import FREE_LIMIT_MESSAGE
 from nurse.utils.email import send_mail_with_reply
@@ -114,7 +122,17 @@ class SendEmailToDoctorView(APIView):
         return Response({"message": "Email sent"}, status=status.HTTP_200_OK)
 
 
-class PatientViewSet(DynamicFieldsMixin, viewsets.ModelViewSet):
+class PrivateFileURLResponseMixin:
+    def finalize_response(self, request, response, *args, **kwargs):
+        response = super().finalize_response(request, response, *args, **kwargs)
+        response["Cache-Control"] = "private, no-store"
+        response["Pragma"] = "no-cache"
+        return response
+
+
+class PatientViewSet(
+    PrivateFileURLResponseMixin, DynamicFieldsMixin, viewsets.ModelViewSet
+):
     queryset = Patient.objects.all()
     serializer_class = PatientSerializer
 
@@ -142,7 +160,7 @@ class PatientViewSet(DynamicFieldsMixin, viewsets.ModelViewSet):
         return response
 
 
-class PrescriptionViewSet(viewsets.ModelViewSet):
+class PrescriptionViewSet(PrivateFileURLResponseMixin, viewsets.ModelViewSet):
     queryset = Prescription.objects.all()
     serializer_class = ExpandedPrescriptionSerializer
 
@@ -167,8 +185,40 @@ class PrescriptionViewSet(viewsets.ModelViewSet):
 
         return super().create(request, *args, **kwargs)
 
+    @extend_schema(
+        request=None,
+        responses={
+            200: PrivateFileURLSerializer,
+            401: OpenApiTypes.OBJECT,
+            404: OpenApiTypes.OBJECT,
+            503: SessionErrorSerializer,
+        },
+    )
+    @action(detail=True, methods=["get"], url_path="file-url")
+    def file_url(self, request, pk=None):
+        from nurse.utils.private_files import file_exists, signed_file_url
 
-class PrescriptionFileView(generics.UpdateAPIView):
+        prescription = self.get_object()
+        if not file_exists(prescription.photo_prescription):
+            raise NotFound(
+                {"code": "file_unavailable", "message": "Fichier indisponible."}
+            )
+        expires_at = timezone.now() + timedelta(
+            seconds=settings.PRIVATE_FILE_URL_TTL_SECONDS
+        )
+        response = Response(
+            {
+                "url": signed_file_url(prescription.photo_prescription),
+                "expires_at": expires_at.isoformat(),
+                "expires_in": settings.PRIVATE_FILE_URL_TTL_SECONDS,
+            }
+        )
+        response["Cache-Control"] = "private, no-store"
+        response["Pragma"] = "no-cache"
+        return response
+
+
+class PrescriptionFileView(PrivateFileURLResponseMixin, generics.UpdateAPIView):
     queryset = Prescription.objects.all()
     serializer_class = PrescriptionFileSerializer
 
@@ -226,8 +276,11 @@ class UserOneSignalProfileViewSet(mixins.CreateModelMixin, viewsets.GenericViewS
 
 
 class ProfileView(APIView):
+    @extend_schema(
+        request=None, responses={200: ProfileSerializer, 401: OpenApiTypes.OBJECT}
+    )
     def get(self, request):
-        serializer = UserSerializer(request.user)
+        serializer = ProfileSerializer(request.user)
         return Response(serializer.data)
 
 
@@ -244,7 +297,7 @@ class UserViewSet(
     """
 
     queryset = User.objects.all()
-    serializer_class = UserSerializer
+    serializer_class = ProfileSerializer
 
     def get_queryset(self):
         """Limit the queryset to only include the current user."""
@@ -259,27 +312,16 @@ class UserViewSet(
 
 class UserCreate(generics.CreateAPIView):
     queryset = User.objects.all()
-    serializer_class = UserSerializer
+    serializer_class = RegistrationSerializerV1
     permission_classes = (AllowAny,)
-
-    def _create_nurse(self, response_data):
-        """
-        Protected method to create or get the associated Nurse instance.
-        """
-        username = response_data["username"]
-        user = User.objects.get(username=username)
-        Nurse.objects.get_or_create(user=user)
-
-    def post(self, request, *args, **kwargs):
-        response = super().post(request, *args, **kwargs)
-        self._create_nurse(response.data)
-        return response
+    throttle_scope = "registration"
+    throttle_classes = [ScopedRateThrottle]
 
 
 class UserCreateV2(UserCreate):
     """Create a User using email and password."""
 
-    serializer_class = UserSerializerV2
+    serializer_class = RegistrationSerializer
 
     def _create_nurse(self, response_data):
         """

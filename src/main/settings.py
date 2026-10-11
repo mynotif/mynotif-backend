@@ -65,7 +65,7 @@ THIRDPARTY_APP = (
 )
 
 CUSTOM_APPS = (
-    "main",
+    "main.apps.MainConfig",
     "nurse",
     "payment",
 )
@@ -182,15 +182,45 @@ CORS_ALLOWED_ORIGIN_REGEXES = json.loads(
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
+        "main.session_authentication.OpaqueSessionAuthentication",
         "rest_framework.authentication.TokenAuthentication",
     ],
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
     ],
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    "DEFAULT_THROTTLE_RATES": {
+        "session_login": "5/min",
+        "session_refresh": "30/min",
+        "registration": "5/min",
+        "password_reset": "5/min",
+    },
 }
 
+
+def _bounded_int_setting(name, default, minimum, maximum):
+    try:
+        value = int(os.environ.get(name, str(default)))
+    except ValueError as exc:
+        raise ValueError(f"{name} must be an integer") from exc
+    if not minimum <= value <= maximum:
+        raise ValueError(f"{name} must be between {minimum} and {maximum}")
+    return value
+
+
+AUTH_SESSION_MAX_AGE_SECONDS = _bounded_int_setting(
+    "AUTH_SESSION_MAX_AGE_SECONDS", 2592000, 1, 2592000
+)
+AUTH_ACCESS_TTL_SECONDS = _bounded_int_setting("AUTH_ACCESS_TTL_SECONDS", 900, 1, 900)
+AUTH_REFRESH_RECOVERY_SECONDS = _bounded_int_setting(
+    "AUTH_REFRESH_RECOVERY_SECONDS", 60, 1, 60
+)
+PRIVATE_FILE_URL_TTL_SECONDS = _bounded_int_setting(
+    "PRIVATE_FILE_URL_TTL_SECONDS", 300, 1, 900
+)
+
 SPECTACULAR_SETTINGS = {
+    "COMPONENT_SPLIT_REQUEST": True,
     "TITLE": "Mynotif",
     "DESCRIPTION": "API Mynotif",
     "VERSION": "1.0.0",
@@ -202,6 +232,10 @@ STATICFILES_STORAGE_BACKEND = "django.contrib.staticfiles.storage.StaticFilesSto
 DEFAULT_FILE_STORAGE_BACKEND = "storages.backends.s3boto3.S3Boto3Storage"
 AWS_STORAGE_BUCKET_NAME = "mynotif-prescription"
 AWS_S3_REGION_NAME = "eu-west-3"
+AWS_QUERYSTRING_AUTH = True
+AWS_QUERYSTRING_EXPIRE = PRIVATE_FILE_URL_TTL_SECONDS
+AWS_DEFAULT_ACL = None
+AWS_S3_OBJECT_PARAMETERS = {"CacheControl": "no-store"}
 AWS_ACCESS_KEY_ID = os.environ.get("AWS_ACCESS_KEY_ID")
 AWS_SECRET_ACCESS_KEY = os.environ.get("AWS_SECRET_ACCESS_KEY")
 
@@ -225,6 +259,11 @@ EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
 # Djoser
 DJOSER = {
     "PASSWORD_RESET_CONFIRM_URL": os.environ.get("PASSWORD_RESET_CONFIRM_URL"),
+    "SERIALIZERS": {
+        "user": "nurse.serializers.ProfileSerializer",
+        "current_user": "nurse.serializers.ProfileSerializer",
+        "user_create": "nurse.serializers.RegistrationSerializerV1",
+    },
 }
 
 # one signal configuration

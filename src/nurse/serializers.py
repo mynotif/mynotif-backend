@@ -1,5 +1,8 @@
 from django.contrib.auth.models import User
 from django.core.validators import RegexValidator
+from django.db import IntegrityError, transaction
+from djoser.serializers import UserCreateSerializer
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from nurse.models import Nurse, Patient, Prescription, UserOneSignalProfile
@@ -62,6 +65,7 @@ class PrescriptionEmailSerializer(serializers.Serializer):
 class PrescriptionSerializer(DynamicFieldsModelSerializer):
     is_valid = serializers.SerializerMethodField()
     expiring_soon = serializers.SerializerMethodField()
+    photo_prescription = serializers.SerializerMethodField()
 
     class Meta:
         model = Prescription
@@ -77,11 +81,16 @@ class PrescriptionSerializer(DynamicFieldsModelSerializer):
         fields["patient"].queryset = patients
         return fields
 
-    def get_is_valid(self, obj):
+    def get_is_valid(self, obj) -> bool:
         return obj.is_valid()
 
-    def get_expiring_soon(self, obj):
+    def get_expiring_soon(self, obj) -> bool:
         return obj.expiring_soon()
+
+    def get_photo_prescription(self, obj) -> str:
+        from nurse.utils.private_files import signed_file_url
+
+        return signed_file_url(obj.photo_prescription)
 
 
 class ExpandedPrescriptionSerializer(PrescriptionSerializer):
@@ -106,7 +115,7 @@ class NurseSerializer(serializers.ModelSerializer):
         read_only_fields = ("id", "user", "patients")
 
 
-class UserSerializer(serializers.ModelSerializer):
+class ProfileSerializer(serializers.ModelSerializer):
     nurse = serializers.SerializerMethodField()
 
     class Meta:
@@ -117,20 +126,28 @@ class UserSerializer(serializers.ModelSerializer):
             "email",
             "first_name",
             "last_name",
-            "password",
             "is_staff",
             "nurse",
         )
-        read_only_fields = ("id", "is_staff")
-        extra_kwargs = {"password": {"write_only": True}}
+        read_only_fields = ("id", "username", "email", "is_staff", "nurse")
 
-    def create(self, validated_data):
-        password = validated_data.pop("password")
-        user = User(**validated_data)
-        user.set_password(password)
-        user.save()
-        return user
+    def to_internal_value(self, data):
+        if "password" in data:
+            raise serializers.ValidationError(
+                {"password": ["Password changes must use the password endpoint."]}
+            )
+        allowed = {"first_name", "last_name"}
+        forbidden = {"email", "username", "id", "is_staff", "nurse"}
+        unknown = set(data) - allowed - forbidden
+        if unknown:
+            raise serializers.ValidationError(
+                {key: ["Unknown field."] for key in sorted(unknown)}
+            )
+        return super().to_internal_value(
+            {key: value for key, value in data.items() if key in allowed}
+        )
 
+    @extend_schema_field(NurseSerializer)
     def get_nurse(self, obj):
         # note that we're doing a `get_or_create()` rather than accessing the
         # `obj.nurse` directly, because it could be some cases where the user
@@ -139,15 +156,16 @@ class UserSerializer(serializers.ModelSerializer):
         return NurseSerializer(nurse).data
 
 
-class UserSerializerV2(UserSerializer):
-    """
-    V2 serializer inherits from V1 but excludes `username` field.
-    Automatically sets `username` to the provided `email`.
-    """
+class RegistrationSerializer(UserCreateSerializer):
+    id = serializers.IntegerField(read_only=True)
+    email = serializers.EmailField(required=True)
+    first_name = serializers.CharField(required=False, allow_blank=True, max_length=150)
+    last_name = serializers.CharField(required=False, allow_blank=True, max_length=150)
+    password = serializers.CharField(write_only=True, trim_whitespace=False)
+    is_staff = serializers.BooleanField(read_only=True)
+    nurse = serializers.SerializerMethodField()
 
-    class Meta(UserSerializer.Meta):
-        """Exclude `username` from fields."""
-
+    class Meta(UserCreateSerializer.Meta):
         fields = (
             "id",
             "email",
@@ -158,10 +176,84 @@ class UserSerializerV2(UserSerializer):
             "nurse",
         )
 
+    def to_internal_value(self, data):
+        if "username" in data and not isinstance(self, RegistrationSerializerV1):
+            raise serializers.ValidationError(
+                {"username": ["This field is not allowed."]}
+            )
+        return super().to_internal_value(data)
+
+    def validate(self, attrs):
+        email = attrs["email"]
+        if len(email) > 150:
+            raise serializers.ValidationError(
+                {"email": ["Email cannot exceed 150 characters."]}
+            )
+        username = email[:150]
+        if (
+            User.objects.filter(email=email).exists()
+            or User.objects.filter(username=username).exists()
+        ):
+            raise serializers.ValidationError(
+                {"email": ["This email is already in use."]}
+            )
+        attrs["username"] = username
+        return super().validate(attrs)
+
+    @transaction.atomic
     def create(self, validated_data):
-        """Automatically set `username` to `email`."""
-        validated_data["username"] = validated_data["email"]
-        return super().create(validated_data)
+        validated_data = dict(validated_data)
+        try:
+            with transaction.atomic():
+                user = User.objects.create_user(**validated_data)
+                Nurse.objects.get_or_create(user=user)
+        except IntegrityError as exc:
+            if User.objects.filter(username=validated_data["username"]).exists():
+                raise serializers.ValidationError(
+                    {"email": ["This email is already in use."]}
+                ) from exc
+            raise
+        return user
+
+    @extend_schema_field(NurseSerializer)
+    def get_nurse(self, obj):
+        nurse, _ = Nurse.objects.get_or_create(user=obj)
+        return NurseSerializer(nurse).data
+
+
+class RegistrationSerializerV1(RegistrationSerializer):
+    username = serializers.CharField(max_length=150)
+
+    class Meta(RegistrationSerializer.Meta):
+        fields = (
+            "id",
+            "username",
+            "email",
+            "first_name",
+            "last_name",
+            "password",
+            "is_staff",
+            "nurse",
+        )
+
+    def validate(self, attrs):
+        username = attrs["username"]
+        if User.objects.filter(username=username).exists():
+            raise serializers.ValidationError(
+                {"username": ["This username is already in use."]}
+            )
+        attrs["username"] = username
+        email = attrs["email"]
+        if User.objects.filter(email=email).exclude(username=username).exists():
+            raise serializers.ValidationError(
+                {"email": ["This email is already in use."]}
+            )
+        return UserCreateSerializer.validate(self, attrs)
+
+
+# Compatibility names retained for imports in existing extensions.
+UserSerializer = ProfileSerializer
+UserSerializerV2 = RegistrationSerializer
 
 
 class UserOneSignalProfileSerializer(serializers.ModelSerializer):
