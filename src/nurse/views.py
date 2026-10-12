@@ -2,10 +2,12 @@ from django.conf import settings
 from django.contrib.auth.models import User
 from django.shortcuts import get_object_or_404
 from django.template.loader import render_to_string
+from drf_spectacular.utils import OpenApiTypes, extend_schema
 from rest_framework import generics, mixins, status, viewsets
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import AllowAny, IsAdminUser
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 from nurse.management.commands._notifications import notify
@@ -16,9 +18,10 @@ from nurse.serializers import (
     PatientSerializer,
     PrescriptionEmailSerializer,
     PrescriptionFileSerializer,
+    ProfileSerializer,
+    RegistrationSerializer,
+    RegistrationSerializerV1,
     UserOneSignalProfileSerializer,
-    UserSerializer,
-    UserSerializerV2,
 )
 from nurse.utils.constants import FREE_LIMIT_MESSAGE
 from nurse.utils.email import send_mail_with_reply
@@ -226,8 +229,11 @@ class UserOneSignalProfileViewSet(mixins.CreateModelMixin, viewsets.GenericViewS
 
 
 class ProfileView(APIView):
+    @extend_schema(
+        request=None, responses={200: ProfileSerializer, 401: OpenApiTypes.OBJECT}
+    )
     def get(self, request):
-        serializer = UserSerializer(request.user)
+        serializer = ProfileSerializer(request.user)
         return Response(serializer.data)
 
 
@@ -244,7 +250,7 @@ class UserViewSet(
     """
 
     queryset = User.objects.all()
-    serializer_class = UserSerializer
+    serializer_class = ProfileSerializer
 
     def get_queryset(self):
         """Limit the queryset to only include the current user."""
@@ -259,27 +265,16 @@ class UserViewSet(
 
 class UserCreate(generics.CreateAPIView):
     queryset = User.objects.all()
-    serializer_class = UserSerializer
+    serializer_class = RegistrationSerializerV1
     permission_classes = (AllowAny,)
-
-    def _create_nurse(self, response_data):
-        """
-        Protected method to create or get the associated Nurse instance.
-        """
-        username = response_data["username"]
-        user = User.objects.get(username=username)
-        Nurse.objects.get_or_create(user=user)
-
-    def post(self, request, *args, **kwargs):
-        response = super().post(request, *args, **kwargs)
-        self._create_nurse(response.data)
-        return response
+    throttle_scope = "registration"
+    throttle_classes = [ScopedRateThrottle]
 
 
 class UserCreateV2(UserCreate):
     """Create a User using email and password."""
 
-    serializer_class = UserSerializerV2
+    serializer_class = RegistrationSerializer
 
     def _create_nurse(self, response_data):
         """

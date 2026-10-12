@@ -50,7 +50,7 @@ def test_registration_preserves_server_managed_fields(url, account_rights, monke
     response = client.post(
         url,
         {
-            "username": "new@example.test",
+            **({"username": "new@example.test"} if "v2/" not in url else {}),
             "email": "new@example.test",
             "password": "Synthetic-test-password-39!",
             **account_fields(group, permission),
@@ -97,12 +97,13 @@ def test_update_preserves_account_rights(
         },
         format="json",
     )
-    assert response.status_code == 200
+    assert response.status_code == 400
     user.refresh_from_db()
-    assert user.email == "updated@example.test"
-    assert "password" not in response.data
-    if route == "custom":
-        assert response.data["is_staff"] is administrator
+    assert user.email == "johndoe@example.fr"
+    assert response.data.get("password") == [
+        "Password changes must use the password endpoint."
+    ]
+    assert "Synthetic-test-password-39!" not in str(response.data)
     if administrator:
         assert user.is_staff
         assert user.is_superuser

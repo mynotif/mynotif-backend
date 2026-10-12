@@ -848,14 +848,14 @@ class TestUser:
         assert user.last_name == "Doe"
         assert user.email == "johndoe@example.fr"
         data = {**self.data, "first_name": "Firstname1", "last_name": "Lastname 1"}
+        data.pop("password")
         assert user.email != data["email"]
         response = client.put(
             reverse_lazy("v1:user-detail", kwargs={"pk": None}), data, format="json"
         )
         assert response.status_code == status.HTTP_200_OK
-        data.pop("password")
         assert response.json() == {
-            **data,
+            **{**data, "email": user.email, "username": user.username},
             "id": 1,
             "is_staff": False,
             "nurse": {
@@ -871,7 +871,7 @@ class TestUser:
         user.refresh_from_db()
         assert user.first_name == data["first_name"]
         assert user.last_name == data["last_name"]
-        assert user.email == data["email"]
+        assert user.email == "johndoe@example.fr"
 
     def test_partial_update_user(self, user, client):
         """Using a patch for a partial update (not all fields)."""
@@ -917,7 +917,7 @@ class TestUserCreate:
     client = APIClient()
     url = reverse_lazy("v1:register")
     username = {"username": USERNAME}
-    password = {"password": PASSWORD}
+    password = {"password": "Synthetic-Strong-Pass-397!"}
     email = {"email": EMAIL}
     data = {**username, **password, **email}
 
@@ -961,9 +961,7 @@ class TestUserCreate:
         assert User.objects.filter(**self.username).count() == 1
         response = self.client.post(self.url, self.data, format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.data == {
-            "username": ["A user with that username already exists."]
-        }
+        assert response.data == {"username": ["This username is already in use."]}
         assert User.objects.filter(**self.username).count() == 1
 
     def test_get(self):
@@ -999,7 +997,7 @@ class TestUserCreateV2:
     client = APIClient()
     url = reverse_lazy("v2:register")
     username = {"username": USERNAME}
-    password = {"password": PASSWORD}
+    password = {"password": "Synthetic-Strong-Pass-397!"}
     email = {"email": EMAIL}
     data = {**username, **password, **email}
 

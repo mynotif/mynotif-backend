@@ -42,7 +42,7 @@ router.registry.extend(payment_router.registry)
 v1_urlpatterns = [
     path("version/", main_views.version, name="version"),
     path("account/register", nurse_views.UserCreate.as_view(), name="register"),
-    path("auth/", include(("djoser.urls", "auth"), namespace="auth")),
+    path("auth/", include(("main.account_urls", "auth"), namespace="auth")),
     path("", include("nurse.urls"), name="nurse"),
     path("payment/", include("payment.urls", namespace="payment")),
     path("api-token-auth/", obtain_auth_token, name="api_token_auth"),
@@ -56,6 +56,10 @@ v1_urlpatterns = [
 
 v2_urlpatterns = [
     path("account/register", nurse_views.UserCreateV2.as_view(), name="register"),
+    path(
+        "auth/sessions/",
+        include(("main.session_urls", "sessions"), namespace="sessions"),
+    ),
     path(
         "api-token-auth/",
         main_views.CustomObtainAuthToken.as_view(),
