@@ -16,6 +16,7 @@ table_names = (
 class Migration(migrations.Migration):
     dependencies = [
         ("main", "0001_initial"),
+        ("nurse", "0001_initial"),
     ]
 
     operations = [
