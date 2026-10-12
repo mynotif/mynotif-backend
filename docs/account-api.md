@@ -1,8 +1,8 @@
-# Account and session API
+# Account and private file API
 
 All endpoints below require HTTPS outside synthetic local development. Authentication
-credentials must not be logged or persisted in shared caches. Responses containing
-sessions use `private, no-store`.
+credentials and signed URL query strings must not be logged or persisted in shared
+caches. Responses containing sessions or private file URLs use `private, no-store`.
 
 ## Registration and profile
 
@@ -59,6 +59,19 @@ unknown/foreign sessions 404. Service-level session errors contain `code` and
 `message`; field validation and authentication failures retain DRF error shapes.
 Clients must check HTTP status before consuming a success payload.
 
+## Private prescription files
+
+`GET /api/v1/prescription/{id}/file-url/` requires normal resource authentication
+and verifies prescription access before consulting storage. It returns `url`,
+`expires_at`, and `expires_in`. Unknown or foreign prescriptions and unavailable
+files return 404; temporary storage failures return 503 without storage details.
+
+The default URL lifetime is 300 seconds. Existing `photo_prescription` responses
+contain a temporary URL or the empty string when no file is attached. Fetch a fresh
+URL when opening a file rather than retaining a URL from an old patient list. A link
+already issued remains a capability until expiration even after logout or access
+removal; never treat a signed link as a permanent resource identifier.
+
 ## Configuration and activation
 
 | Setting                         | Default | Allowed seconds |
@@ -66,13 +79,16 @@ Clients must check HTTP status before consuming a success payload.
 | `AUTH_SESSION_MAX_AGE_SECONDS`  | 2592000 | 1–2592000       |
 | `AUTH_ACCESS_TTL_SECONDS`       | 900     | 1–900           |
 | `AUTH_REFRESH_RECOVERY_SECONDS` | 60      | 1–60            |
+| `PRIVATE_FILE_URL_TTL_SECONDS`  | 300     | 1–900           |
 
 Apply `main.0003_auth_sessions` before enabling the session endpoints. The migration
 adds session/token tables without converting legacy tokens or business records.
 The dependency correction in `main.0002_row_level_security` orders Nurse creation
 before historical PostgreSQL RLS SQL.
 
-The existing web client continues using legacy Token login. Web session controls
-require a separate frontend integration. Private-file URL renewal is delivered
-separately. Synthetic backend tests and schema validation do not qualify a
-production deployment.
+The existing web client continues using legacy Token login. Web session controls and
+renewal of private URLs require a separate frontend integration. Before activating
+private-file behavior, verify a page left open beyond the URL lifetime, fresh opening,
+deleted files, removed permissions, authentication expiry, and a bounded retry after
+storage failure. Synthetic backend tests and schema validation do not qualify a
+production deployment or real storage permissions.

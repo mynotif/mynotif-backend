@@ -42,3 +42,9 @@ class SessionPairSerializer(serializers.Serializer):
 class SessionErrorSerializer(serializers.Serializer):
     code = serializers.CharField()
     message = serializers.CharField()
+
+
+class PrivateFileURLSerializer(serializers.Serializer):
+    url = serializers.URLField()
+    expires_at = serializers.DateTimeField()
+    expires_in = serializers.IntegerField(min_value=1, max_value=900)
