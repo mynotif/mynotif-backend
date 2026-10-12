@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from django.contrib.auth.models import User
 from django.db import models
 
+from nurse.patient_search import PatientQuerySet, PatientSearchSaveMixin
 from payment.models import Subscription
 
 
@@ -23,7 +24,7 @@ def make_phone_field():
     return models.CharField(max_length=30, blank=True, default="")
 
 
-class Patient(models.Model):
+class Patient(PatientSearchSaveMixin, models.Model):
     firstname = models.CharField(max_length=30, blank=False)
     lastname = models.CharField(max_length=30, blank=False)
     street = make_street_field()
@@ -39,6 +40,13 @@ class Patient(models.Model):
     ss_provider_code = models.CharField(
         max_length=9, blank=True, help_text="code d'organisme de rattachement"
     )
+
+    # Nullable during additive rollout; activate v2 only after repair/check.
+    search_firstname = models.TextField(null=True, editable=False)
+    search_lastname = models.TextField(null=True, editable=False)
+    search_city = models.TextField(null=True, editable=False)
+    search_phone = models.TextField(null=True, editable=False)
+    objects = PatientQuerySet.as_manager()
 
     def __str__(self):
         return str(self.firstname)

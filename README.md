@@ -133,3 +133,46 @@ You can learn more in the api rest framework(https://www.django-rest-framework.o
 You can learn more build API(https://insomnia.rest/)
 
 You can learn more in django(https://www.djangoproject.com/)
+
+## Préparation de la recherche patients M03 (#267)
+
+La recherche v2 est préparée par quatre colonnes privées dérivées, normalisées
+NFD → suppression des marques Unicode M → casefold. Les comparaisons restent
+SQL, AND entre termes / OR entre firstname, lastname, city et phone. Le schéma v1
+reste inchangé. Cette préparation ne rend aucune route v2 disponible à elle seule.
+
+La migration 0014 ajoute les colonnes nullable sans défaut ni index. Le
+lock_timeout PostgreSQL 2 s, confirmé explicitement, précède chaque ADD/DROP dans
+la même transaction et limite l'attente du bref verrou de métadonnées. 0015
+remplit les colonnes par lots de 500, avec protection des sources concurrentes. Le backfill initial ne suffit pas pendant un rolling deploy :
+les anciennes instances peuvent toujours écrire des colonnes NULL ou périmées.
+Après retrait de tous les anciens écrivains, exécuter explicitement la réparation
+puis le contrôle avant activation des lectures v2 (commande de production soumise
+à autorisation, aucune exécution production effectuée ici) :
+
+```sh
+venv/bin/python src/manage.py repair_patient_search --batch-size 500
+venv/bin/python src/manage.py repair_patient_search --check --batch-size 500
+```
+
+La commande n'affiche ni identifiant ni donnée métier. Les écritures ORM normales,
+partielles et bulk maintiennent ces colonnes; les expressions sur les quatre
+sources dans update/bulk sont refusées. SQL brut et anciens écrivains sont hors
+invariant. Ne pas activer la recherche tant qu'ils restent actifs. Un rollback
+retire les routes v2 d'abord et conserve les colonnes; ne pas annuler la migration
+DDL sous des instances qui interrogent ces colonnes.
+
+Tests synthétiques reproductibles, sans .env ni secrets hérités :
+
+```sh
+make virtualenv/test
+scripts/m03-synthetic.sh make unittest
+scripts/m03-synthetic.sh make lint
+scripts/m03-synthetic.sh make run/migrations/check
+```
+
+La qualification PostgreSQL synthétique distingue les droits ORM du RLS
+historique : FORCE RLS sans policy interdit les lignes à un rôle sans BYPASSRLS.
+Les tests avec superuser synthétique prouvent l'isolation ORM A/B, sans qualifier
+le rôle de production. Aucun changement de policy RLS n'est inclus; le rôle réel
+et les journaux PostgreSQL/proxy/hébergement restent à qualifier avant activation.
