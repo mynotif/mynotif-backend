@@ -55,6 +55,7 @@ v1_urlpatterns = [
 ]
 
 v2_urlpatterns = [
+    path("", include(("nurse.read_urls", "reads"), namespace="reads")),
     path("account/register", nurse_views.UserCreateV2.as_view(), name="register"),
     path(
         "auth/sessions/",

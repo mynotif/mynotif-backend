@@ -19,7 +19,8 @@ WORKDIR /app
 
 COPY --from=base /app/venv/ /app/venv/
 COPY src /app/src
+COPY gunicorn.conf.py /app/gunicorn.conf.py
 COPY --from=base /app/src/staticfiles/ /app/src/staticfiles/
 
-CMD ["sh", "-c", "/app/venv/bin/gunicorn --chdir src --bind 0.0.0.0:${PORT} main.wsgi"]
+CMD ["sh", "-c", "/app/venv/bin/gunicorn --config /app/gunicorn.conf.py --chdir src --bind 0.0.0.0:${PORT} main.wsgi"]
 EXPOSE ${PORT}
