@@ -65,6 +65,7 @@ class PrescriptionEmailSerializer(serializers.Serializer):
 class PrescriptionSerializer(DynamicFieldsModelSerializer):
     is_valid = serializers.SerializerMethodField()
     expiring_soon = serializers.SerializerMethodField()
+    photo_prescription = serializers.SerializerMethodField()
 
     class Meta:
         model = Prescription
@@ -85,6 +86,11 @@ class PrescriptionSerializer(DynamicFieldsModelSerializer):
 
     def get_expiring_soon(self, obj) -> bool:
         return obj.expiring_soon()
+
+    def get_photo_prescription(self, obj) -> str:
+        from nurse.utils.private_files import signed_file_url
+
+        return signed_file_url(obj.photo_prescription)
 
 
 class ExpandedPrescriptionSerializer(PrescriptionSerializer):
