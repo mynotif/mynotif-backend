@@ -168,7 +168,9 @@ class PrescriptionViewSet(PrivateFileURLResponseMixin, viewsets.ModelViewSet):
         """Only the prescriptions associated to the logged in nurse."""
         queryset = self.queryset
         nurse, _ = Nurse.objects.get_or_create(user=self.request.user)
-        queryset = queryset.filter(patient__nurse=nurse)
+        queryset = queryset.filter(
+            patient__nurse=nurse, document_versions__isnull=True
+        )
         return queryset
 
     def create(self, request, *args, **kwargs):
@@ -226,7 +228,9 @@ class PrescriptionFileView(PrivateFileURLResponseMixin, generics.UpdateAPIView):
         user = getattr(self.request, "user", None)
         if user is None or not user.is_authenticated:
             return self.queryset.none()
-        return self.queryset.filter(patient__nurse__user=user)
+        return self.queryset.filter(
+            patient__nurse__user=user, document_versions__isnull=True
+        )
 
 
 class NurseViewSet(viewsets.ModelViewSet):

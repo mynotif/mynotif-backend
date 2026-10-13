@@ -52,14 +52,16 @@ class PatientSerializer(DynamicFieldsModelSerializer):
         )
 
     def get_prescriptions(self, obj):
-        prescriptions = Prescription.objects.filter(patient_id=obj.id).order_by(
-            "-end_date"
-        )
+        prescriptions = Prescription.objects.filter(
+            patient_id=obj.id, document_versions__isnull=True
+        ).order_by("-end_date")
         return PrescriptionSerializer(prescriptions, many=True).data
 
     def get_expire_soon_prescriptions(self, obj):
         prescriptions = Prescription.objects.expiring_soon()
-        prescriptions = prescriptions.filter(patient_id=obj.id).order_by("-end_date")
+        prescriptions = prescriptions.filter(
+            patient_id=obj.id, document_versions__isnull=True
+        ).order_by("-end_date")
         return PrescriptionSerializer(prescriptions, many=True).data
 
 
