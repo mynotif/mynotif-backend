@@ -151,3 +151,32 @@ def test_runtime_commands_explicitly_load_private_gunicorn_config():
     assert "COPY gunicorn.conf.py /app/gunicorn.conf.py" in docker
     assert "--config /app/gunicorn.conf.py" in docker
     assert "--config gunicorn.conf.py" in (root / "Makefile").read_text()
+
+
+def test_v3_route_skeleton_exposes_only_capability_methods_in_openapi():
+    from drf_spectacular.generators import SchemaGenerator
+
+    paths = SchemaGenerator().get_schema(request=None, public=True)["paths"]
+    expected = {
+        "/api/v3/document-capabilities/": {"get"},
+        "/api/v3/patients/{patient_id}/document-imports/": {"get", "post"},
+        "/api/v3/patients/{patient_id}/document-imports/{import_uuid}/": {
+            "get",
+            "patch",
+            "delete",
+        },
+        "/api/v3/patients/{patient_id}/document-imports/{import_uuid}/confirmation/": {
+            "put"
+        },
+        "/api/v3/patients/{patient_id}/document-imports/{import_uuid}/assets/"
+        "{asset_id}/content/": {"get"},
+        "/api/v3/patients/{patient_id}/prescriptions/": {"get"},
+        "/api/v3/patients/{patient_id}/prescriptions/{prescription_id}/": {"get"},
+        "/api/v3/patients/{patient_id}/prescriptions/{prescription_id}/documents/": {
+            "get"
+        },
+        "/api/v3/patients/{patient_id}/prescriptions/{prescription_id}/documents/"
+        "{asset_id}/content/": {"get"},
+    }
+    for path, methods in expected.items():
+        assert set(paths[path]) == methods

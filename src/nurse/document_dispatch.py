@@ -43,6 +43,20 @@ _ERROR_MESSAGES = {
 IMPORT_HANDLER = "nurse.document_import_views"
 READ_HANDLER = "nurse.document_read_views"
 
+_IMPORT_METHODS = {
+    "capabilities": ["get", "head", "options"],
+    "imports": ["get", "post", "head", "options"],
+    "import": ["get", "patch", "delete", "head", "options"],
+    "confirmation": ["put", "options"],
+    "import-asset-content": ["get", "head", "options"],
+}
+_READ_METHODS = {
+    "prescriptions": ["get", "head", "options"],
+    "prescription": ["get", "head", "options"],
+    "document-manifest": ["get", "head", "options"],
+    "prescription-document-content": ["get", "head", "options"],
+}
+
 
 class DocumentV3DispatchView(APIView):
     authentication_classes = [OpaqueSessionAuthentication]
@@ -121,7 +135,11 @@ def import_view(operation):
     return type(
         f"DocumentImport{operation.replace('-', '_').title().replace('_', '')}View",
         (DocumentV3DispatchView,),
-        {"handler_module": IMPORT_HANDLER, "operation": operation},
+        {
+            "handler_module": IMPORT_HANDLER,
+            "operation": operation,
+            "http_method_names": _IMPORT_METHODS[operation],
+        },
     ).as_view()
 
 
@@ -129,5 +147,9 @@ def read_view(operation):
     return type(
         f"DocumentRead{operation.replace('-', '_').title().replace('_', '')}View",
         (DocumentV3DispatchView,),
-        {"handler_module": READ_HANDLER, "operation": operation},
+        {
+            "handler_module": READ_HANDLER,
+            "operation": operation,
+            "http_method_names": _READ_METHODS[operation],
+        },
     ).as_view()
