@@ -1,7 +1,7 @@
 """Versioned document API dispatch with Bearer-only authentication."""
 
-from importlib import import_module
 import logging
+from importlib import import_module
 
 from rest_framework.exceptions import AuthenticationFailed, NotAuthenticated
 from rest_framework.permissions import IsAuthenticated
@@ -18,8 +18,26 @@ _ERRORS = {
     401: ("authentication_required", "Authentification requise."),
     404: ("not_found", "Ressource indisponible."),
     405: ("method_not_allowed", "Méthode non autorisée."),
+    409: ("invalid_state", "Cette opération ne peut pas être effectuée."),
+    410: ("import_expired", "Ce brouillon a expiré."),
+    412: ("revision_conflict", "Le brouillon a changé. Relisez-le."),
+    413: ("document_too_large", "Le document dépasse la taille autorisée."),
+    415: ("unsupported_media_type", "Format de document non pris en charge."),
+    422: ("unreadable_document", "Le document ne peut pas être lu."),
     429: ("rate_limited", "Trop de demandes. Réessayez plus tard."),
     503: ("service_unavailable", "Service indisponible. Réessayez."),
+}
+_ERROR_MESSAGES = {
+    **{code: message for code, message in _ERRORS.values()},
+    "idempotency_conflict": "Cette clé correspond à un autre document.",
+    "operation_in_progress": "Opération en cours. Réessayez.",
+    "already_confirmed": "Cette ordonnance est déjà enregistrée.",
+    "invalid_dates": "Les dates du document sont invalides.",
+    "invalid_pages": "Les pages du document sont invalides.",
+    "invalid_document": "Le document ne peut pas être accepté.",
+    "encrypted_pdf": "Les PDF protégés ne sont pas acceptés.",
+    "document_rejected": "Le document ne peut pas être accepté.",
+    "validation_unavailable": "La validation est momentanément indisponible.",
 }
 
 IMPORT_HANDLER = "nurse.document_import_views"
@@ -45,9 +63,15 @@ class DocumentV3DispatchView(APIView):
         status_code = response.status_code
         if isinstance(exc, (AuthenticationFailed, NotAuthenticated)):
             status_code = 401
-        code, message = _ERRORS.get(
-            status_code, _ERRORS[503] if status_code >= 500 else _ERRORS[400]
-        )
+        detail = response.data
+        candidate_code = detail.get("code") if isinstance(detail, dict) else None
+        if candidate_code in _ERROR_MESSAGES:
+            code = candidate_code
+            message = _ERROR_MESSAGES[code]
+        else:
+            code, message = _ERRORS.get(
+                status_code, _ERRORS[503] if status_code >= 500 else _ERRORS[400]
+            )
         response.data = {"code": code, "message": message, "fields": {}}
         response.status_code = status_code
         if status_code == 401:

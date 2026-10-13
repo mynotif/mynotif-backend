@@ -1,5 +1,7 @@
+import sys
 import uuid
 from datetime import date, timedelta
+from types import ModuleType
 
 import pytest
 from django.contrib.auth.models import User
@@ -8,6 +10,7 @@ from django.db.migrations.executor import MigrationExecutor
 from django.test import override_settings
 from django.utils import timezone
 from rest_framework.authtoken.models import Token
+from rest_framework.exceptions import APIException, UnsupportedMediaType
 from rest_framework.test import APIClient
 
 from nurse.models import (
@@ -143,6 +146,108 @@ def test_unimplemented_v3_handler_fails_closed(document_records):
     assert response.data["code"] == "service_unavailable"
     assert response["Cache-Control"] == "private, no-store"
     assert response["Pragma"] == "no-cache"
+
+
+def test_v3_unexpected_handler_error_has_closed_response_and_redacted_log(
+    document_records, monkeypatch, caplog
+):
+    owner, _, _, _ = document_records
+    marker = "SYNTHETIC_PRIVATE_EXCEPTION_MARKER"
+    module = ModuleType("nurse.document_import_views")
+
+    def fail(*args, **kwargs):
+        raise ValueError(marker)
+
+    module.dispatch = fail
+    monkeypatch.setitem(sys.modules, module.__name__, module)
+    client = APIClient()
+    client.force_authenticate(owner)
+
+    response = client.get("/api/v3/document-capabilities/")
+
+    assert response.status_code == 503
+    assert response.data == {
+        "code": "service_unavailable",
+        "message": "Service indisponible. Réessayez.",
+        "fields": {},
+    }
+    assert marker not in response.content.decode()
+    assert marker not in caplog.text
+    assert response["Cache-Control"] == "private, no-store"
+
+
+def test_v3_exception_preserves_stable_contract_code(document_records, monkeypatch):
+    owner, _, _, _ = document_records
+    module = ModuleType("nurse.document_import_views")
+
+    def parse(*args, **kwargs):
+        raise UnsupportedMediaType("SYNTHETIC_UNTRUSTED_CONTENT_TYPE")
+
+    module.dispatch = parse
+    monkeypatch.setitem(sys.modules, module.__name__, module)
+    client = APIClient()
+    client.force_authenticate(owner)
+
+    response = client.generic(
+        "POST",
+        "/api/v3/document-capabilities/",
+        b"synthetic",
+        content_type="application/octet-stream",
+    )
+
+    assert response.status_code == 415
+    assert response.data == {
+        "code": "unsupported_media_type",
+        "message": "Format de document non pris en charge.",
+        "fields": {},
+    }
+
+
+@pytest.mark.parametrize(
+    ("status_code", "code", "message"),
+    [
+        (
+            409,
+            "idempotency_conflict",
+            "Cette clé correspond à un autre document.",
+        ),
+        (400, "invalid_dates", "Les dates du document sont invalides."),
+        (
+            503,
+            "validation_unavailable",
+            "La validation est momentanément indisponible.",
+        ),
+    ],
+)
+def test_v3_exception_preserves_only_allowlisted_contract_codes(
+    document_records, monkeypatch, status_code, code, message
+):
+    owner, _, _, _ = document_records
+    module = ModuleType("nurse.document_import_views")
+    exception_type = type(
+        "SyntheticContractError",
+        (APIException,),
+        {"status_code": status_code},
+    )
+
+    def fail(*args, **kwargs):
+        raise exception_type(
+            {
+                "code": code,
+                "message": "SYNTHETIC_UNTRUSTED_ERROR_MESSAGE",
+                "fields": {"patient": ["SYNTHETIC_PRIVATE_FIELD"]},
+            }
+        )
+
+    module.dispatch = fail
+    monkeypatch.setitem(sys.modules, module.__name__, module)
+    client = APIClient()
+    client.force_authenticate(owner)
+
+    response = client.get("/api/v3/document-capabilities/")
+
+    assert response.status_code == status_code
+    assert response.data == {"code": code, "message": message, "fields": {}}
 
 
 @pytest.mark.parametrize(
