@@ -184,3 +184,5 @@ See [the read contract and privacy/rollout limits](docs/reads-v2.md).
 The synthetic environment runner is `scripts/m03-synthetic.sh`; the loopback
 HTTP route proof is `scripts/m03-http-proof.py`. These do not qualify production
 or the future Android adapters.
+
+Les résumés d’ordonnances v2 sont décrits dans [prescriptions-v2](docs/prescriptions-v2.md), avec les preuves synthétiques et limites dans [Verify #269](docs/agentic/work/269/verify.md).
