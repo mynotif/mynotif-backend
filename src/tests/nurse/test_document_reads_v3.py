@@ -32,8 +32,17 @@ PNG = bytes.fromhex(
 
 
 @pytest.fixture
-def read_setup(user, settings):
-    settings.MEDIA_ROOT = "/tmp/ordopro-document-reads-tests"
+def read_setup(user, settings, tmp_path):
+    settings.MEDIA_ROOT = str(tmp_path)
+    settings.STORAGES = {
+        "default": {
+            "BACKEND": "django.core.files.storage.FileSystemStorage",
+            "OPTIONS": {"location": str(tmp_path)},
+        },
+        "staticfiles": {
+            "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"
+        },
+    }
     pair = login(user.username, PASSWORD)
     client = APIClient()
     client.credentials(HTTP_AUTHORIZATION=f"Bearer {pair['access_token']}")

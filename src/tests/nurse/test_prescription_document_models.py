@@ -209,7 +209,7 @@ def test_v3_exception_preserves_stable_contract_code(document_records, monkeypat
 
     response = client.generic(
         "POST",
-        "/api/v3/document-capabilities/",
+        "/api/v3/patients/1/document-imports/",
         b"synthetic",
         content_type="application/octet-stream",
     )
@@ -298,8 +298,17 @@ def test_v3_exception_preserves_only_allowlisted_contract_codes(
     ],
 )
 def test_v3_cors_preflight_requires_auth_and_advertises_route_methods(
-    path, requested_method, allowed_methods
+    path, requested_method, allowed_methods, document_records
 ):
+    owner, patient, _, operation = document_records
+    from nurse.models import Nurse
+
+    nurse = Nurse.objects.create(user=owner)
+    nurse.patients.add(patient)
+    path = path.replace("/patients/1/", f"/patients/{patient.pk}/")
+    path = path.replace(
+        "00000000-0000-0000-0000-000000000001", str(operation.import_uuid)
+    )
     headers = {
         "HTTP_ORIGIN": "https://synthetic.invalid",
         "HTTP_ACCESS_CONTROL_REQUEST_METHOD": requested_method,
@@ -313,7 +322,6 @@ def test_v3_cors_preflight_requires_auth_and_advertises_route_methods(
         )
         assert requested_method in unauthenticated["Access-Control-Allow-Methods"]
 
-        owner = User.objects.create_user(username="synthetic-cors-owner")
         authenticated = APIClient()
         authenticated.force_authenticate(owner)
         response = authenticated.options(path, **headers)
