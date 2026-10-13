@@ -73,11 +73,12 @@ CUSTOM_APPS = (
 INSTALLED_APPS = DJANGO_CORE_APP + THIRDPARTY_APP + CUSTOM_APPS
 
 MIDDLEWARE = [
+    "nurse.read_privacy.PrivateReadPrivacyMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
-    "corsheaders.middleware.CorsMiddleware",
+    "nurse.read_cors.PrivateReadCorsMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
@@ -275,8 +276,13 @@ DOMAIN = os.environ.get("TEMPLATED_MAIL_DOMAIN", "")
 SITE_NAME = os.environ.get("TEMPLATED_SITE_NAME", "")
 
 if SENTRY_DSN := os.environ.get("SENTRY_DSN"):
+    from nurse.read_privacy import before_breadcrumb, before_send
+
     sentry_sdk.init(
         dsn=SENTRY_DSN,
+        before_send=before_send,
+        before_send_transaction=before_send,
+        before_breadcrumb=before_breadcrumb,
         integrations=[DjangoIntegration()],
         # Set traces_sample_rate to 1.0 to capture 100%
         # of transactions for performance monitoring.

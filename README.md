@@ -176,3 +176,11 @@ historique : FORCE RLS sans policy interdit les lignes à un rôle sans BYPASSRL
 Les tests avec superuser synthétique prouvent l'isolation ORM A/B, sans qualifier
 le rôle de production. Aucun changement de policy RLS n'est inclus; le rôle réel
 et les journaux PostgreSQL/proxy/hébergement restent à qualifier avant activation.
+
+## Private patient reads v2
+
+M03-C adds Bearer-only, paginated patient reads alongside the existing v1 API.
+See [the read contract and privacy/rollout limits](docs/reads-v2.md).
+The synthetic environment runner is `scripts/m03-synthetic.sh`; the loopback
+HTTP route proof is `scripts/m03-http-proof.py`. These do not qualify production
+or the future Android adapters.

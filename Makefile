@@ -110,7 +110,7 @@ run/dev: virtualenv
 	$(PYTHON) src/manage.py runserver
 
 run/prod:
-	$(GUNICORN) --chdir src --bind 0.0.0.0:$(PORT) main.wsgi
+	$(GUNICORN) --config gunicorn.conf.py --chdir src --bind 0.0.0.0:$(PORT) main.wsgi
 
 docker/build:
 	docker build --build-arg PORT=$(PORT) --build-arg VERSION=$(VERSION) --tag=$(DOCKER_IMAGE):$(IMAGE_TAG) .

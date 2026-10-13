@@ -7,3 +7,6 @@ class MainConfig(AppConfig):
 
     def ready(self):
         import main.schema  # noqa: F401
+        from nurse.read_privacy import install_log_redaction
+
+        install_log_redaction()
