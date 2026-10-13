@@ -5,7 +5,9 @@ from nurse.read_prescription_serializers import PrescriptionSummarySerializer
 
 class DocumentAssetSerializer(serializers.Serializer):
     asset_id = serializers.UUIDField()
-    mime_type = serializers.ChoiceField(choices=("image/jpeg", "image/png", "application/pdf"))
+    mime_type = serializers.ChoiceField(
+        choices=("image/jpeg", "image/png", "application/pdf")
+    )
     byte_size = serializers.IntegerField(min_value=1)
     page_count = serializers.IntegerField(min_value=1)
     sha256 = serializers.RegexField(r"^[0-9a-f]{64}$")
@@ -39,8 +41,12 @@ class DocumentManifestSerializer(serializers.Serializer):
 class DocumentReadErrorSerializer(serializers.Serializer):
     code = serializers.ChoiceField(
         choices=(
-            "invalid_query", "authentication_required", "not_found",
-            "page_not_found", "method_not_allowed", "rate_limited",
+            "invalid_query",
+            "authentication_required",
+            "not_found",
+            "page_not_found",
+            "method_not_allowed",
+            "rate_limited",
             "service_unavailable",
         )
     )

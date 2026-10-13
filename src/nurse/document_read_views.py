@@ -55,7 +55,12 @@ class ScopedPrescriptionView(PrescriptionReadView):
         )
         self.prescription = get_object_or_404(
             Prescription.objects.filter(patient=self.patient).only(
-                "id", "patient_id", "prescribing_doctor", "start_date", "end_date", "photo_prescription"
+                "id",
+                "patient_id",
+                "prescribing_doctor",
+                "start_date",
+                "end_date",
+                "photo_prescription",
             ),
             pk=kwargs["prescription_id"],
         )
@@ -65,26 +70,39 @@ class ScopedPrescriptionView(PrescriptionReadView):
 
 
 class PrescriptionList(PrescriptionReadView):
-    @extend_schema(operation_id="v3_prescriptions_list", parameters=[PATIENT_ID, *PAGE_PARAMETERS], responses={200: PrescriptionV3PageSerializer, **ERROR_RESPONSES})
+    @extend_schema(
+        operation_id="v3_prescriptions_list",
+        parameters=[PATIENT_ID, *PAGE_PARAMETERS],
+        responses={200: PrescriptionV3PageSerializer, **ERROR_RESPONSES},
+    )
     def get(self, request, patient_id):
-        patient = get_object_or_404(Patient.objects.filter(nurse__user=request.user).only("id"), pk=patient_id)
+        patient = get_object_or_404(
+            Patient.objects.filter(nurse__user=request.user).only("id"), pk=patient_id
+        )
         query = self.query(request)
-        rows = Prescription.objects.filter(patient=patient).order_by(
-            F("end_date").desc(nulls_last=True), "-id"
-        ).only(
-            "id", "patient_id", "prescribing_doctor", "start_date", "end_date"
+        rows = (
+            Prescription.objects.filter(patient=patient)
+            .order_by(F("end_date").desc(nulls_last=True), "-id")
+            .only("id", "patient_id", "prescribing_doctor", "start_date", "end_date")
         )
         return self.page_response(rows, query, PrescriptionSummarySerializer)
 
     def options(self, request, *args, **kwargs):
-        get_object_or_404(Patient.objects.filter(nurse__user=request.user).only("id"), pk=kwargs["patient_id"])
+        get_object_or_404(
+            Patient.objects.filter(nurse__user=request.user).only("id"),
+            pk=kwargs["patient_id"],
+        )
         return Response({"allowed_methods": ", ".join(self.allowed_methods)})
 
 
 class PrescriptionDetail(ScopedPrescriptionView):
     query_serializer_class = PrescriptionDetailQuerySerializer
 
-    @extend_schema(operation_id="v3_prescriptions_retrieve", parameters=[PATIENT_ID, PRESCRIPTION_ID], responses={200: PrescriptionSummarySerializer, **ERROR_RESPONSES})
+    @extend_schema(
+        operation_id="v3_prescriptions_retrieve",
+        parameters=[PATIENT_ID, PRESCRIPTION_ID],
+        responses={200: PrescriptionSummarySerializer, **ERROR_RESPONSES},
+    )
     def get(self, request, **kwargs):
         self.query(request)
         if request.method == "HEAD":
@@ -94,11 +112,16 @@ class PrescriptionDetail(ScopedPrescriptionView):
 
 def _asset_data(asset):
     return {
-        "asset_id": str(asset.pk), "mime_type": asset.mime_type,
-        "byte_size": asset.byte_size, "page_count": asset.page_count,
-        "sha256": asset.sha256, "role": asset.role,
+        "asset_id": str(asset.pk),
+        "mime_type": asset.mime_type,
+        "byte_size": asset.byte_size,
+        "page_count": asset.page_count,
+        "sha256": asset.sha256,
+        "role": asset.role,
         "original_index": asset.original_index,
-        "source_asset_id": str(asset.source_asset_id) if asset.source_asset_id else None,
+        "source_asset_id": str(asset.source_asset_id)
+        if asset.source_asset_id
+        else None,
     }
 
 
@@ -122,68 +145,134 @@ def _legacy_asset(prescription):
         raise Http404
     return {
         "asset_id": str(uuid.uuid5(LEGACY_ASSET_NAMESPACE, str(prescription.pk))),
-        "mime_type": mime, "byte_size": len(content), "page_count": 1,
-        "sha256": hashlib.sha256(content).hexdigest(), "role": "original",
-        "original_index": 0, "source_asset_id": None,
+        "mime_type": mime,
+        "byte_size": len(content),
+        "page_count": 1,
+        "sha256": hashlib.sha256(content).hexdigest(),
+        "role": "original",
+        "original_index": 0,
+        "source_asset_id": None,
     }, content
 
 
 class PrescriptionDocumentManifest(ScopedPrescriptionView):
-    @extend_schema(operation_id="v3_prescription_document_manifest", parameters=[PATIENT_ID, PRESCRIPTION_ID], responses={200: DocumentManifestSerializer, **ERROR_RESPONSES})
+    @extend_schema(
+        operation_id="v3_prescription_document_manifest",
+        parameters=[PATIENT_ID, PRESCRIPTION_ID],
+        responses={200: DocumentManifestSerializer, **ERROR_RESPONSES},
+    )
     def get(self, request, **kwargs):
         self.query(request)
         if request.method == "HEAD":
             return Response(status=200)
-        version = PrescriptionDocumentVersion.objects.filter(
-            prescription=self.prescription
-        ).order_by("-version").first()
+        version = (
+            PrescriptionDocumentVersion.objects.filter(prescription=self.prescription)
+            .order_by("-version")
+            .first()
+        )
         if version is None:
             asset, _ = _legacy_asset(self.prescription)
-            return Response({"version": 1, "assets": [asset], "pages": [{
-                "source_asset_id": asset["asset_id"], "source_page": 1,
-                "display_asset_id": asset["asset_id"], "display_page": 1,
-                "rotation": 0, "crop": None,
-            }]})
-        assets = list(version.assets.select_related("source_asset").order_by("role", "original_index", "created_at"))
+            return Response(
+                {
+                    "version": 1,
+                    "assets": [asset],
+                    "pages": [
+                        {
+                            "source_asset_id": asset["asset_id"],
+                            "source_page": 1,
+                            "display_asset_id": asset["asset_id"],
+                            "display_page": 1,
+                            "rotation": 0,
+                            "crop": None,
+                        }
+                    ],
+                }
+            )
+        assets = list(
+            version.assets.select_related("source_asset").order_by(
+                "role", "original_index", "created_at"
+            )
+        )
         originals = {asset.pk: asset for asset in assets if asset.role == "original"}
-        derived = {asset.source_asset_id: asset for asset in assets if asset.role == "derived"}
+        derived = {
+            asset.source_asset_id: asset for asset in assets if asset.role == "derived"
+        }
         metadata = version.document_import.metadata or {}
         pages = []
         for page in metadata.get("pages", []):
-            source = next((asset for asset in originals.values() if asset.original_index == page["asset_index"]), None)
+            source = next(
+                (
+                    asset
+                    for asset in originals.values()
+                    if asset.original_index == page["asset_index"]
+                ),
+                None,
+            )
             if source is None:
                 raise ReadAPIError("service_unavailable")
             display = derived.get(source.pk, source)
-            pages.append({
-                "source_asset_id": str(source.pk), "source_page": page["source_page"],
-                "display_asset_id": str(display.pk),
-                "display_page": 1 if display.role == "derived" else page["source_page"],
-                "rotation": page["rotation"], "crop": page["crop"],
-            })
-        return Response({"version": version.version, "assets": [_asset_data(a) for a in assets], "pages": pages})
+            pages.append(
+                {
+                    "source_asset_id": str(source.pk),
+                    "source_page": page["source_page"],
+                    "display_asset_id": str(display.pk),
+                    "display_page": 1
+                    if display.role == "derived"
+                    else page["source_page"],
+                    "rotation": page["rotation"],
+                    "crop": page["crop"],
+                }
+            )
+        return Response(
+            {
+                "version": version.version,
+                "assets": [_asset_data(a) for a in assets],
+                "pages": pages,
+            }
+        )
 
 
 class PrescriptionDocumentContent(ScopedPrescriptionView):
     def _resolve(self, asset_id):
-        version = PrescriptionDocumentVersion.objects.filter(prescription=self.prescription).order_by("-version").first()
+        version = (
+            PrescriptionDocumentVersion.objects.filter(prescription=self.prescription)
+            .order_by("-version")
+            .first()
+        )
         if version is None:
-            if asset_id != uuid.uuid5(LEGACY_ASSET_NAMESPACE, str(self.prescription.pk)):
+            if asset_id != uuid.uuid5(
+                LEGACY_ASSET_NAMESPACE, str(self.prescription.pk)
+            ):
                 raise Http404
             asset, content = _legacy_asset(self.prescription)
             return None, asset, content
-        asset = get_object_or_404(PrescriptionDocumentAsset.objects.filter(document_version=version), pk=asset_id)
+        asset = get_object_or_404(
+            PrescriptionDocumentAsset.objects.filter(document_version=version),
+            pk=asset_id,
+        )
         return asset, _asset_data(asset), None
 
-    @extend_schema(operation_id="v3_prescription_document_content", parameters=[PATIENT_ID, PRESCRIPTION_ID, ASSET_ID], responses={200: bytes, **ERROR_RESPONSES})
+    @extend_schema(
+        operation_id="v3_prescription_document_content",
+        parameters=[PATIENT_ID, PRESCRIPTION_ID, ASSET_ID],
+        responses={200: bytes, **ERROR_RESPONSES},
+    )
     def get(self, request, **kwargs):
         self.query(request)
         if request.method == "HEAD":
-            version = PrescriptionDocumentVersion.objects.filter(
-                prescription=self.prescription
-            ).order_by("-version").first()
+            version = (
+                PrescriptionDocumentVersion.objects.filter(
+                    prescription=self.prescription
+                )
+                .order_by("-version")
+                .first()
+            )
             if version is None:
                 expected = uuid.uuid5(LEGACY_ASSET_NAMESPACE, str(self.prescription.pk))
-                if kwargs["asset_id"] != expected or not self.prescription.photo_prescription.name:
+                if (
+                    kwargs["asset_id"] != expected
+                    or not self.prescription.photo_prescription.name
+                ):
                     raise Http404
                 name = self.prescription.photo_prescription.name.lower()
                 extension = "png" if name.endswith(".png") else "jpg"
@@ -200,21 +289,44 @@ class PrescriptionDocumentContent(ScopedPrescriptionView):
                 response["Content-Length"] = str(size)
             else:
                 response["Content-Length"] = "0"
-            extension = "pdf" if mime == "application/pdf" else "png" if mime == "image/png" else "jpg"
-            response["Content-Disposition"] = f'attachment; filename="document.{extension}"'
+            extension = (
+                "pdf"
+                if mime == "application/pdf"
+                else "png"
+                if mime == "image/png"
+                else "jpg"
+            )
+            response["Content-Disposition"] = (
+                f'attachment; filename="document.{extension}"'
+            )
             response["X-Content-Type-Options"] = "nosniff"
             return response
         asset, data, legacy_content = self._resolve(kwargs["asset_id"])
         if legacy_content is not None:
             response = HttpResponse(legacy_content, content_type=data["mime_type"])
-            response["Content-Disposition"] = 'attachment; filename="document.' + ("png" if data["mime_type"] == "image/png" else "jpg") + '"'
+            response["Content-Disposition"] = (
+                'attachment; filename="document.'
+                + ("png" if data["mime_type"] == "image/png" else "jpg")
+                + '"'
+            )
         else:
             try:
                 handle = open_private(asset.storage_key)
             except Exception as error:
                 raise ReadAPIError("service_unavailable") from error
-            filename = "document.pdf" if data["mime_type"] == "application/pdf" else "document.png" if data["mime_type"] == "image/png" else "document.jpg"
-            response = FileResponse(handle, content_type=data["mime_type"], as_attachment=True, filename=filename)
+            filename = (
+                "document.pdf"
+                if data["mime_type"] == "application/pdf"
+                else "document.png"
+                if data["mime_type"] == "image/png"
+                else "document.jpg"
+            )
+            response = FileResponse(
+                handle,
+                content_type=data["mime_type"],
+                as_attachment=True,
+                filename=filename,
+            )
         response["X-Content-Type-Options"] = "nosniff"
         response["Cache-Control"] = "private, no-store"
         response["Pragma"] = "no-cache"
@@ -223,11 +335,18 @@ class PrescriptionDocumentContent(ScopedPrescriptionView):
     def options(self, request, *args, **kwargs):
         self.query(request)
         # Resolve scope and UUID without opening or hashing any file.
-        version = PrescriptionDocumentVersion.objects.filter(prescription=self.prescription).order_by("-version").first()
+        version = (
+            PrescriptionDocumentVersion.objects.filter(prescription=self.prescription)
+            .order_by("-version")
+            .first()
+        )
         if version is None:
             expected = uuid.uuid5(LEGACY_ASSET_NAMESPACE, str(self.prescription.pk))
             if kwargs["asset_id"] != expected:
                 raise Http404
         else:
-            get_object_or_404(PrescriptionDocumentAsset.objects.filter(document_version=version), pk=kwargs["asset_id"])
+            get_object_or_404(
+                PrescriptionDocumentAsset.objects.filter(document_version=version),
+                pk=kwargs["asset_id"],
+            )
         return Response({"allowed_methods": ", ".join(self.allowed_methods)})
