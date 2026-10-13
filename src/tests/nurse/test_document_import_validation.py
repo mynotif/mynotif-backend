@@ -336,12 +336,14 @@ def test_resource_policy_sets_all_numeric_limits(monkeypatch):
         (
             "WORKER_ADDRESS_SPACE",
             128 * 1024 * 1024,
-            "try:\n bytearray(256*1024*1024)\n print('allocated')\nexcept MemoryError:\n print('blocked')",
+            "try:\n bytearray(256*1024*1024)\n"
+            " print('allocated')\nexcept MemoryError:\n print('blocked')",
         ),
         (
             "WORKER_NOFILE",
             16,
-            "fds=[]\ntry:\n for _ in range(64): fds.append(open('/dev/null'))\n print('allocated')\nexcept OSError:\n print('blocked')",
+            "fds=[]\ntry:\n for _ in range(64): fds.append(open('/dev/null'))\n"
+            " print('allocated')\nexcept OSError:\n print('blocked')",
         ),
     ],
 )
@@ -367,11 +369,13 @@ def test_file_size_limit_blocks_synthetic_child(monkeypatch, tmp_path):
     from nurse import document_validation
 
     monkeypatch.setattr(document_validation, "WORKER_ADDRESS_SPACE", 128 * 1024 * 1024)
+    target = repr(str(tmp_path / "blocked"))
     child = subprocess.run(
         [
             sys.executable,
             "-c",
-            f"try:\n f=open({str(tmp_path / 'blocked').__repr__()},'wb')\n f.write(b'x')\n f.flush()\n print('allocated')\nexcept OSError:\n print('blocked')",
+            f"try:\n f=open({target},'wb')\n f.write(b'x')\n f.flush()\n"
+            " print('allocated')\nexcept OSError:\n print('blocked')",
         ],
         capture_output=True,
         text=True,

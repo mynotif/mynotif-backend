@@ -60,12 +60,12 @@ class Command(BaseCommand):
                         document_version__isnull=True,
                     ).only("pk", "storage_key")
                 )
-                # Delete registered staging objects, then sweep any write-before-row crash.
+                # Delete registered staging objects, then sweep crash leftovers.
                 for asset in assets:
                     delete_private(asset.storage_key)
                 prefix = f"private/document-imports/{operation.pk}"
                 referenced = set(operation.assets.values_list("storage_key", flat=True))
-                # Sweep orphan objects from a process crash between storage write and DB insert.
+                # Sweep objects left between storage write and database insert.
                 for key in list_private_prefix(prefix):
                     if key.startswith(prefix + "/") and key not in referenced:
                         delete_private(key)
