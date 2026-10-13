@@ -24,7 +24,10 @@ from tests.conftest import PASSWORD
 
 pytestmark = pytest.mark.django_db
 PNG = bytes.fromhex(
-    "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d49444154789c6360f8cfc0000004010100c9fe92ef0000000049454e44ae426082"
+    "89504e470d0a1a0a0000000d49484452"
+    "000000010000000108060000001f15c489"
+    "0000000d49444154789c6360f8cfc0000004010100c9fe92ef"
+    "0000000049454e44ae426082"
 )
 
 
@@ -255,9 +258,10 @@ def test_openapi_read_routes_have_only_contract_methods():
         "/api/v3/patients/{patient_id}/prescriptions/{prescription_id}/documents/": {
             "get"
         },
-        "/api/v3/patients/{patient_id}/prescriptions/{prescription_id}/documents/{asset_id}/content/": {
-            "get"
-        },
+        (
+            "/api/v3/patients/{patient_id}/prescriptions/{prescription_id}/"
+            "documents/{asset_id}/content/"
+        ): {"get"},
     }
     for path, methods in expected.items():
         assert {
