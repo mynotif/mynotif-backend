@@ -317,6 +317,41 @@ def test_upload_rate_limit_counts_retries_before_parsing_multipart(tmp_path, rea
     assert DocumentImportAttempt.objects.filter(owner=user).count() == 3
 
 
+def test_options_requires_patient_and_import_scope_without_reading_storage(monkeypatch):
+    client, patient, user = api_context()
+    foreign = Patient.objects.create(firstname="Autre", lastname="Patient")
+    calls = []
+    monkeypatch.setattr(
+        "nurse.document_import_views.open_private",
+        lambda *_: calls.append("open") or (_ for _ in ()).throw(AssertionError()),
+    )
+
+    allowed = client.options(
+        f"/api/v3/patients/{patient.pk}/document-imports/"
+    )
+    denied_patient = client.options(
+        f"/api/v3/patients/{foreign.pk}/document-imports/"
+    )
+    import_uuid = uuid.uuid4()
+    DocumentImport.objects.create(
+        owner=user,
+        patient=patient,
+        import_uuid=import_uuid,
+        state=DocumentImportState.READY,
+        metadata={"pages": []},
+        expires_at=timezone.now() + timedelta(hours=1),
+    )
+    denied_import = client.options(
+        f"/api/v3/patients/{foreign.pk}/document-imports/{import_uuid}/"
+    )
+
+    assert allowed.status_code == 200
+    assert allowed.data == {"allowed_methods": "GET, HEAD, POST, OPTIONS"}
+    assert denied_patient.status_code == denied_import.status_code == 404
+    assert all(response["Cache-Control"] == "private, no-store" for response in (allowed, denied_patient, denied_import))
+    assert calls == []
+
+
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.skipif(connection.vendor != "postgresql", reason="PostgreSQL concurrency proof")
 def test_postgres_same_uuid_concurrent_upload_reserves_one_import(tmp_path, ready_backend):

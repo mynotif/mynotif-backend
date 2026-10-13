@@ -128,6 +128,8 @@ def _record_import_attempt(request):
 
 def dispatch(operation, request, **kwargs):
     if operation == "capabilities":
+        if request.method == "OPTIONS":
+            return Response({"allowed_methods": "GET, HEAD, OPTIONS"})
         if request.method != "GET":
             return Response(status=405)
         return Response(
@@ -145,6 +147,26 @@ def dispatch(operation, request, **kwargs):
         )
 
     patient = _patient(request, kwargs["patient_id"])
+    if request.method == "OPTIONS":
+        methods = {
+            "imports": "GET, HEAD, POST, OPTIONS",
+            "import": "GET, HEAD, PATCH, DELETE, OPTIONS",
+            "confirmation": "PUT, OPTIONS",
+            "import-asset-content": "GET, HEAD, OPTIONS",
+        }.get(operation)
+        if methods is None:
+            raise _error("not_found", 404)
+        if operation != "imports":
+            draft = _operation(request, patient, kwargs["import_uuid"])
+            if operation == "import-asset-content":
+                if draft.state not in (
+                    DocumentImportState.READY,
+                    DocumentImportState.CONFIRMED,
+                ):
+                    raise _error("invalid_state", 409)
+                get_object_or_404(draft.assets.all(), pk=kwargs["asset_id"])
+        return Response({"allowed_methods": methods})
+
     if operation == "imports" and request.method == "GET":
         query = ReadQuerySerializer(data=request.query_params)
         if not query.is_valid():
