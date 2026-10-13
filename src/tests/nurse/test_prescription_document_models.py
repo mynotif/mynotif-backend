@@ -15,6 +15,7 @@ from rest_framework.test import APIClient
 
 from nurse.models import (
     DocumentImport,
+    DocumentImportAttempt,
     Patient,
     Prescription,
     PrescriptionDocumentAsset,
@@ -42,6 +43,14 @@ def document_records():
         expires_at=timezone.now() + timedelta(hours=24),
     )
     return owner, patient, prescription, operation
+
+
+def test_document_import_attempt_is_account_scoped_and_timestamped():
+    owner = User.objects.create_user(username="synthetic-document-attempt-owner")
+    attempt = DocumentImportAttempt.objects.create(owner=owner)
+    assert attempt.owner_id == owner.pk
+    assert attempt.attempted_at is not None
+    assert DocumentImportAttempt.objects.filter(owner=owner).count() == 1
 
 
 def test_import_uuid_is_unique_per_owner_and_not_global(document_records):
@@ -135,8 +144,18 @@ def test_v3_rejects_legacy_token_authentication():
     assert response["Pragma"] == "no-cache"
 
 
-def test_unimplemented_v3_handler_fails_closed(document_records):
+def test_unimplemented_v3_handler_fails_closed(document_records, monkeypatch):
     owner, _, _, _ = document_records
+    import nurse.document_dispatch as dispatch
+
+    original_import = dispatch.import_module
+
+    def missing_import(name):
+        if name == dispatch.IMPORT_HANDLER:
+            raise ModuleNotFoundError(name=name)
+        return original_import(name)
+
+    monkeypatch.setattr(dispatch, "import_module", missing_import)
     client = APIClient()
     client.force_authenticate(owner)
 

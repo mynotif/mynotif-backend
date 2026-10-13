@@ -4,7 +4,9 @@ This additive storage schema prepares B03 document imports. It does not change
 the existing v1/v2 prescription fields or response contracts. The import and
 asset models use account-scoped idempotency UUIDs, nullable source dates,
 versioned prescription metadata, opaque private-storage keys, content hashes,
-and explicit draft state/lease fields. Application services must still enforce
+explicit draft state/lease fields, and a short-lived account-scoped attempt
+table for throttling before multipart parsing. Attempt rows contain no document
+or patient content and expire after 24 hours. Application services must still enforce
 patient authorization, immutable object writes, validation before ready,
 atomic confirmation and cleanup. The schema alone does not qualify those
 behaviors or production storage.

@@ -128,6 +128,26 @@ class DocumentImportState(models.TextChoices):
     EXPIRED = "expired"
 
 
+class DocumentImportAttempt(models.Model):
+    """One authenticated import attempt; retained briefly to rate-limit retries."""
+
+    owner = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="document_import_attempts",
+        db_index=False,
+    )
+    attempted_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [
+            models.Index(
+                fields=("owner", "attempted_at"),
+                name="nurse_doc_attempt_owner_idx",
+            ),
+        ]
+
+
 class DocumentImport(models.Model):
     """Server-owned, recoverable staging operation for a prescription document."""
 
