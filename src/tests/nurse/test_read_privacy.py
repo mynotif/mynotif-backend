@@ -28,6 +28,9 @@ def test_routes_redact_identifiers():
         == "/api/v2/patients/{patient_id}/prescriptions/{prescription_id}/"
     )
     assert read_route("/api/v1/patient/?search=" + MARKER) is None
+    assert read_route("/api/v3/patients/913579/document-imports/abc/") == (
+        "/api/v3/private-document/"
+    )
 
 
 def test_request_and_dev_server_logs_are_redacted(caplog):
@@ -42,6 +45,15 @@ def test_request_and_dev_server_logs_are_redacted(caplog):
     assert "913579" not in caplog.text and "824680" not in caplog.text
     assert "{patient_id}" in caplog.text and "{prescription_id}" in caplog.text
     assert all(getattr(record, "request", None) is None for record in caplog.records)
+
+    v3_path = "/api/v3/patients/913579/document-imports/824680/?secret=" + MARKER
+    v3_request = RequestFactory().get(v3_path)
+    for logger in ("django.request", "django.server"):
+        logging.getLogger(logger).warning(
+            "Synthetic GET %s", v3_path, extra={"request": v3_request}
+        )
+    assert MARKER not in caplog.text
+    assert "913579" not in caplog.text and "824680" not in caplog.text
 
 
 def test_context_sanitizes_sql_exception_tokens_body_and_sentry(caplog):
@@ -99,6 +111,16 @@ def test_sentry_events_transactions_breadcrumbs_scoped_to_reads():
     ordinary = {"request": {"url": "https://test.invalid/api/v1/version/"}}
     assert before_send(ordinary, {}) is ordinary
     assert before_breadcrumb(ordinary, {}) is ordinary
+    private_v3 = {
+        "request": {
+            "url": "https://test.invalid/api/v3/patients/913579/document-imports/abc/"
+        }
+    }
+    assert before_send(private_v3, {}) is None
+    assert (
+        before_breadcrumb({"message": "GET " + private_v3["request"]["url"]}, {})
+        is None
+    )
 
 
 @pytest.mark.django_db

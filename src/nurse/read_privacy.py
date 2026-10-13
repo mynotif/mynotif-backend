@@ -1,4 +1,4 @@
-"""Suppress sensitive diagnostics for v2 reads, before logging/Sentry sinks."""
+"""Suppress sensitive diagnostics for private API reads, before logging/Sentry."""
 
 import logging
 from contextvars import ContextVar
@@ -12,6 +12,10 @@ def read_route(path):
     if not isinstance(path, str):
         return None
     path = urlsplit(path).path
+    if path.startswith("/api/v3/"):
+        # v3 contains private drafts, confirmation state and clinical records.
+        # A single closed label avoids retaining patient/import/asset IDs.
+        return "/api/v3/private-document/"
     if path == "/api/v2/patients/":
         return "/api/v2/patients/"
     if path.startswith("/api/v2/patients/"):
@@ -36,9 +40,11 @@ def _record_route(record):
     args = record.args.values() if isinstance(record.args, dict) else record.args
     candidates.extend(args or ())
     for value in candidates:
-        if isinstance(value, str) and "/api/v2/patients/" in value:
-            start = value.index("/api/v2/patients/")
-            return read_route(value[start:].split()[0])
+        if isinstance(value, str):
+            for prefix in ("/api/v2/patients/", "/api/v3/"):
+                if prefix in value:
+                    start = value.index(prefix)
+                    return read_route(value[start:].split()[0])
     return None
 
 
@@ -89,7 +95,9 @@ def before_breadcrumb(crumb, hint):
     if read_route(data.get("url", "")):
         return None
     message = crumb.get("message", "")
-    if isinstance(message, str) and "/api/v2/patients/" in message:
+    if isinstance(message, str) and (
+        "/api/v2/patients/" in message or "/api/v3/" in message
+    ):
         return None
     return crumb
 
