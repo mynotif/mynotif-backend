@@ -1,13 +1,26 @@
 """Versioned document API dispatch with Bearer-only authentication."""
 
 from importlib import import_module
+import logging
 
+from rest_framework.exceptions import AuthenticationFailed, NotAuthenticated
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.renderers import JSONRenderer
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from main.session_authentication import OpaqueSessionAuthentication
+
+logger = logging.getLogger(__name__)
+
+_ERRORS = {
+    400: ("invalid_metadata", "Les informations du document sont invalides."),
+    401: ("authentication_required", "Authentification requise."),
+    404: ("not_found", "Ressource indisponible."),
+    405: ("method_not_allowed", "Méthode non autorisée."),
+    429: ("rate_limited", "Trop de demandes. Réessayez plus tard."),
+    503: ("service_unavailable", "Service indisponible. Réessayez."),
+}
 
 IMPORT_HANDLER = "nurse.document_import_views"
 READ_HANDLER = "nurse.document_read_views"
@@ -21,6 +34,25 @@ class DocumentV3DispatchView(APIView):
     http_method_names = ["get", "post", "put", "patch", "delete", "head", "options"]
     handler_module = None
     operation = None
+
+    def handle_exception(self, exc):
+        try:
+            response = super().handle_exception(exc)
+        except Exception:
+            logger.exception("Private v3 request failed")
+            response = Response(status=503)
+
+        status_code = response.status_code
+        if isinstance(exc, (AuthenticationFailed, NotAuthenticated)):
+            status_code = 401
+        code, message = _ERRORS.get(
+            status_code, _ERRORS[503] if status_code >= 500 else _ERRORS[400]
+        )
+        response.data = {"code": code, "message": message, "fields": {}}
+        response.status_code = status_code
+        if status_code == 401:
+            response["WWW-Authenticate"] = "Bearer"
+        return response
 
     def dispatch_operation(self, request, *args, **kwargs):
         try:

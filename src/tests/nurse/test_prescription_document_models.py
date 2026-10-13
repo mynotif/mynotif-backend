@@ -122,6 +122,11 @@ def test_v3_rejects_legacy_token_authentication():
         HTTP_AUTHORIZATION=f"Token {token.key}",
     )
     assert response.status_code == 401
+    assert response.data == {
+        "code": "authentication_required",
+        "message": "Authentification requise.",
+        "fields": {},
+    }
     assert response["WWW-Authenticate"] == "Bearer"
     assert response["Cache-Control"] == "private, no-store"
     assert response["Pragma"] == "no-cache"
@@ -178,6 +183,7 @@ def test_v3_cors_preflight_requires_auth_and_advertises_route_methods(
     with override_settings(CORS_ALLOWED_ORIGINS=["https://synthetic.invalid"]):
         unauthenticated = APIClient().options(path, **headers)
         assert unauthenticated.status_code == 401
+        assert unauthenticated.data["code"] == "authentication_required"
         assert unauthenticated["Access-Control-Allow-Origin"] == (
             "https://synthetic.invalid"
         )
