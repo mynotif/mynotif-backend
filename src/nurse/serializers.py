@@ -36,7 +36,20 @@ class PatientSerializer(DynamicFieldsModelSerializer):
 
     class Meta:
         model = Patient
-        fields = "__all__"
+        fields = (
+            "id",
+            "firstname",
+            "lastname",
+            "street",
+            "zip_code",
+            "city",
+            "phone",
+            "birthday",
+            "health_card_number",
+            "ss_provider_code",
+            "prescriptions",
+            "expire_soon_prescriptions",
+        )
 
     def get_prescriptions(self, obj):
         prescriptions = Prescription.objects.filter(patient_id=obj.id).order_by(
