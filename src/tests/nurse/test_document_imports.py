@@ -1,5 +1,5 @@
-import json
 import hashlib
+import json
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
@@ -8,15 +8,14 @@ from io import BytesIO
 import pytest
 from django.contrib.auth.models import User
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import override_settings
 from django.db import connection, connections
+from django.test import override_settings
+from django.utils import timezone
 from PIL import Image
 from rest_framework.test import APIClient
 
 from nurse import document_import_services
 from nurse.document_scanner import ScannerUnavailable
-from django.utils import timezone
-
 from nurse.models import (
     DocumentImport,
     DocumentImportAttempt,
@@ -60,9 +59,7 @@ def request_payload(patient_id, import_id, *, doctor="", content=None):
         "start_date": None,
         "end_date": None,
         "source_kind": "image_import",
-        "pages": [
-            {"asset_index": 0, "source_page": 1, "rotation": 0, "crop": None}
-        ],
+        "pages": [{"asset_index": 0, "source_page": 1, "rotation": 0, "crop": None}],
     }
     return (
         f"/api/v3/patients/{patient_id}/document-imports/",
@@ -152,18 +149,33 @@ def test_head_routes_are_scoped_and_never_open_import_content(tmp_path, ready_ba
     import_id = uuid.uuid4()
     url, data, key = request_payload(patient.pk, import_id)
     with fs_storage(tmp_path):
-        created = client.post(url, data=data, format="multipart", HTTP_IDEMPOTENCY_KEY=key)
+        created = client.post(
+            url, data=data, format="multipart", HTTP_IDEMPOTENCY_KEY=key
+        )
         assert created.status_code == 202
         asset_id = created.data["assets"][0]["asset_id"]
         with pytest.MonkeyPatch.context() as patcher:
-            patcher.setattr("nurse.document_import_views.open_private", lambda *_args: (_ for _ in ()).throw(AssertionError("storage opened")))
+            patcher.setattr(
+                "nurse.document_import_views.open_private",
+                lambda *_args: (_ for _ in ()).throw(AssertionError("storage opened")),
+            )
             assert client.head(f"{url}{import_id}/").status_code == 200
-            assert client.head(f"{url}{import_id}/assets/{asset_id}/content/").status_code == 200
+            assert (
+                client.head(f"{url}{import_id}/assets/{asset_id}/content/").status_code
+                == 200
+            )
         assert client.head(url).status_code == 200
-    foreign_nurse = Nurse.objects.create(user=User.objects.create_user(username="synthetic-foreign-head"))
+    foreign_nurse = Nurse.objects.create(
+        user=User.objects.create_user(username="synthetic-foreign-head")
+    )
     foreign_patient = Patient.objects.create(firstname="Autre", lastname="Synthétique")
     foreign_nurse.patients.add(foreign_patient)
-    assert client.head(f"/api/v3/patients/{foreign_patient.pk}/document-imports/").status_code == 404
+    assert (
+        client.head(
+            f"/api/v3/patients/{foreign_patient.pk}/document-imports/"
+        ).status_code
+        == 404
+    )
 
 
 def test_patch_revision_and_all_human_confirmations_gate_single_record(
@@ -238,20 +250,21 @@ def test_patch_revision_and_all_human_confirmations_gate_single_record(
     assert recorded.data["end_date"] is None
     assert recorded.data["prescribing_doctor"] == "Saisi manuellement"
     assert PrescriptionDocumentVersion.objects.count() == 1
-    assert PrescriptionDocumentAsset.objects.filter(
-        document_version__isnull=False
-    ).count() == 2
-    source = next(asset for asset in recorded.data["assets"] if asset["role"] == "original")
-    display = next(asset for asset in recorded.data["assets"] if asset["role"] == "derived")
+    assert (
+        PrescriptionDocumentAsset.objects.filter(document_version__isnull=False).count()
+        == 2
+    )
+    source = next(
+        asset for asset in recorded.data["assets"] if asset["role"] == "original"
+    )
+    display = next(
+        asset for asset in recorded.data["assets"] if asset["role"] == "derived"
+    )
     assert recorded.data["pages"][0]["source_asset_id"] == source["asset_id"]
     assert recorded.data["pages"][0]["display_asset_id"] == display["asset_id"]
     with fs_storage(tmp_path):
-        original = client.get(
-            f"{draft_url}assets/{source['asset_id']}/content/"
-        )
-        preview = client.get(
-            f"{draft_url}assets/{display['asset_id']}/content/"
-        )
+        original = client.get(f"{draft_url}assets/{source['asset_id']}/content/")
+        preview = client.get(f"{draft_url}assets/{display['asset_id']}/content/")
     original_content = b"".join(original.streaming_content)
     preview_content = b"".join(preview.streaming_content)
     assert hashlib.sha256(original_content).hexdigest() == source["sha256"]
@@ -289,9 +302,7 @@ def test_import_list_uses_m03_closed_pagination(ready_backend):
     second = client.get(
         f"/api/v3/patients/{patient.pk}/document-imports/?page=2&page_size=2"
     )
-    invalid = client.get(
-        f"/api/v3/patients/{patient.pk}/document-imports/?page=01"
-    )
+    invalid = client.get(f"/api/v3/patients/{patient.pk}/document-imports/?page=01")
     assert first.status_code == second.status_code == 200
     assert first.data["count"] == 3
     assert first.data["page"] == 1
@@ -304,7 +315,9 @@ def test_import_list_uses_m03_closed_pagination(ready_backend):
     assert invalid.status_code == 400
 
 
-def test_upload_rate_limit_counts_retries_before_parsing_multipart(tmp_path, ready_backend, monkeypatch):
+def test_upload_rate_limit_counts_retries_before_parsing_multipart(
+    tmp_path, ready_backend, monkeypatch
+):
     client, patient, user = api_context()
     responses = []
     import_id = uuid.uuid4()
@@ -320,11 +333,16 @@ def test_upload_rate_limit_counts_retries_before_parsing_multipart(tmp_path, rea
         for _ in range(3):
             _, data, _ = request_payload(patient.pk, import_id)
             responses.append(
-                client.post(url, data=data, format="multipart", HTTP_IDEMPOTENCY_KEY=key)
+                client.post(
+                    url, data=data, format="multipart", HTTP_IDEMPOTENCY_KEY=key
+                )
             )
         responses.append(
             client.generic(
-                "POST", url, data=b"{", content_type="application/json",
+                "POST",
+                url,
+                data=b"{",
+                content_type="application/json",
                 HTTP_IDEMPOTENCY_KEY=key,
             )
         )
@@ -345,12 +363,8 @@ def test_options_requires_patient_and_import_scope_without_reading_storage(monke
         lambda *_: calls.append("open") or (_ for _ in ()).throw(AssertionError()),
     )
 
-    allowed = client.options(
-        f"/api/v3/patients/{patient.pk}/document-imports/"
-    )
-    denied_patient = client.options(
-        f"/api/v3/patients/{foreign.pk}/document-imports/"
-    )
+    allowed = client.options(f"/api/v3/patients/{patient.pk}/document-imports/")
+    denied_patient = client.options(f"/api/v3/patients/{foreign.pk}/document-imports/")
     import_uuid = uuid.uuid4()
     DocumentImport.objects.create(
         owner=user,
@@ -367,13 +381,20 @@ def test_options_requires_patient_and_import_scope_without_reading_storage(monke
     assert allowed.status_code == 200
     assert allowed.data == {"allowed_methods": "GET, HEAD, POST, OPTIONS"}
     assert denied_patient.status_code == denied_import.status_code == 404
-    assert all(response["Cache-Control"] == "private, no-store" for response in (allowed, denied_patient, denied_import))
+    assert all(
+        response["Cache-Control"] == "private, no-store"
+        for response in (allowed, denied_patient, denied_import)
+    )
     assert calls == []
 
 
 @pytest.mark.django_db(transaction=True)
-@pytest.mark.skipif(connection.vendor != "postgresql", reason="PostgreSQL concurrency proof")
-def test_postgres_same_uuid_concurrent_upload_reserves_one_import(tmp_path, ready_backend):
+@pytest.mark.skipif(
+    connection.vendor != "postgresql", reason="PostgreSQL concurrency proof"
+)
+def test_postgres_same_uuid_concurrent_upload_reserves_one_import(
+    tmp_path, ready_backend
+):
     _, patient, user = api_context()
     import_id = uuid.uuid4()
     url, _, key = request_payload(patient.pk, import_id)
@@ -383,7 +404,9 @@ def test_postgres_same_uuid_concurrent_upload_reserves_one_import(tmp_path, read
             local_client = APIClient()
             local_client.force_authenticate(user)
             _url, data, _key = request_payload(patient.pk, import_id)
-            return local_client.post(url, data=data, format="multipart", HTTP_IDEMPOTENCY_KEY=key)
+            return local_client.post(
+                url, data=data, format="multipart", HTTP_IDEMPOTENCY_KEY=key
+            )
         finally:
             connections.close_all()
 
@@ -415,9 +438,12 @@ def test_postgres_same_uuid_concurrent_upload_reserves_one_import(tmp_path, read
     assert sorted(response.status_code for response in responses) == [202, 409]
     assert replay.status_code == 200
     assert DocumentImport.objects.filter(owner=user, import_uuid=import_id).count() == 1
-    assert PrescriptionDocumentAsset.objects.filter(
-        document_import__owner=user, role=PrescriptionDocumentAsset.Role.ORIGINAL
-    ).count() == 1
+    assert (
+        PrescriptionDocumentAsset.objects.filter(
+            document_import__owner=user, role=PrescriptionDocumentAsset.Role.ORIGINAL
+        ).count()
+        == 1
+    )
     assert sorted(response.status_code for response in confirmations) == [200, 201]
     assert confirmation_replay.status_code == 200
     assert len({response.data["prescription_id"] for response in confirmations}) == 1

@@ -64,9 +64,7 @@ class Command(BaseCommand):
                 for asset in assets:
                     delete_private(asset.storage_key)
                 prefix = f"private/document-imports/{operation.pk}"
-                referenced = set(
-                    operation.assets.values_list("storage_key", flat=True)
-                )
+                referenced = set(operation.assets.values_list("storage_key", flat=True))
                 # Sweep orphan objects from a process crash between storage write and DB insert.
                 for key in list_private_prefix(prefix):
                     if key.startswith(prefix + "/") and key not in referenced:

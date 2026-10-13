@@ -19,11 +19,11 @@ from PIL import Image
 from rest_framework.exceptions import APIException
 from rest_framework.test import APIClient
 
-from nurse.document_scanner import InfectedDocument, ScannerUnavailable, scan_bytes
 from nurse import document_import_services
+from nurse.document_scanner import InfectedDocument, ScannerUnavailable, scan_bytes
 from nurse.document_validation import (
-    MAX_ORIGINAL_BYTES,
     MAX_IMAGE_PIXELS,
+    MAX_ORIGINAL_BYTES,
     WORKER_ADDRESS_SPACE,
     WORKER_CPU_SECONDS,
     WORKER_NOFILE,
@@ -71,9 +71,7 @@ def import_payload(patient_id, import_id, image_bytes=None):
         "start_date": None,
         "end_date": None,
         "source_kind": "image_import",
-        "pages": [
-            {"asset_index": 0, "source_page": 1, "rotation": 0, "crop": None}
-        ],
+        "pages": [{"asset_index": 0, "source_page": 1, "rotation": 0, "crop": None}],
     }
     return (
         f"/api/v3/patients/{patient_id}/document-imports/",
@@ -153,7 +151,9 @@ def test_upload_retry_and_confirmation_replay_create_one_prescription(
                 "BACKEND": "django.core.files.storage.FileSystemStorage",
                 "OPTIONS": {"location": str(tmp_path)},
             },
-            "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
+            "staticfiles": {
+                "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"
+            },
         }
     ):
         import_id = uuid.uuid4()
@@ -169,13 +169,12 @@ def test_upload_retry_and_confirmation_replay_create_one_prescription(
         assert first.data["metadata"]["start_date"] is None
         assert first.data["metadata"]["end_date"] is None
         assert len(first.data["assets"]) == 1
-        assert first.data["assets"][0]["sha256"] == __import__("hashlib").sha256(
-            original_bytes
-        ).hexdigest()
-        asset_id = first.data["assets"][0]["asset_id"]
-        content_response = client.get(
-            f"{url}{import_id}/assets/{asset_id}/content/"
+        assert (
+            first.data["assets"][0]["sha256"]
+            == __import__("hashlib").sha256(original_bytes).hexdigest()
         )
+        asset_id = first.data["assets"][0]["asset_id"]
+        content_response = client.get(f"{url}{import_id}/assets/{asset_id}/content/")
         assert content_response.status_code == 200
         assert content_response["X-Content-Type-Options"] == "nosniff"
         assert content_response["Cache-Control"] == "private, no-store"
@@ -207,9 +206,12 @@ def test_upload_retry_and_confirmation_replay_create_one_prescription(
         assert Prescription.objects.filter(patient=patient).count() == 1
         assert Prescription.objects.get(patient=patient).start_date is None
         assert PrescriptionDocumentVersion.objects.count() == 1
-        assert PrescriptionDocumentAsset.objects.filter(
-            document_version__isnull=False
-        ).count() == 1
+        assert (
+            PrescriptionDocumentAsset.objects.filter(
+                document_version__isnull=False
+            ).count()
+            == 1
+        )
 
 
 def test_scanner_unavailable_releases_lease_without_publishing_and_same_key_recovers(
@@ -223,7 +225,9 @@ def test_scanner_unavailable_releases_lease_without_publishing_and_same_key_reco
         raise ScannerUnavailable()
 
     monkeypatch.setattr(document_import_services, "scan_bytes", unavailable)
-    response = client.post(url, data=data, format="multipart", HTTP_IDEMPOTENCY_KEY=idem)
+    response = client.post(
+        url, data=data, format="multipart", HTTP_IDEMPOTENCY_KEY=idem
+    )
     assert response.status_code == 503
     draft = DocumentImport.objects.get(import_uuid=import_id)
     assert draft.state == "retryable"
@@ -250,7 +254,9 @@ def test_scanner_unavailable_releases_lease_without_publishing_and_same_key_reco
                 "BACKEND": "django.core.files.storage.FileSystemStorage",
                 "OPTIONS": {"location": str(tmp_path)},
             },
-            "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
+            "staticfiles": {
+                "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"
+            },
         }
     ):
         replay_url, replay_data, replay_key = import_payload(patient.pk, import_id)
@@ -307,7 +313,11 @@ def test_resource_policy_sets_all_numeric_limits(monkeypatch):
     from nurse import document_validation
 
     observed = []
-    monkeypatch.setattr(document_validation.resource, "setrlimit", lambda key, value: observed.append((key, value)))
+    monkeypatch.setattr(
+        document_validation.resource,
+        "setrlimit",
+        lambda key, value: observed.append((key, value)),
+    )
     _set_worker_limits()
     limits = dict(observed)
     assert limits[document_validation.resource.RLIMIT_CPU] == (5, 5)
@@ -402,7 +412,9 @@ def test_wall_timeout_kills_the_sandbox_process_group(monkeypatch):
     ]
     killed_groups = []
     original_killpg = os.killpg
-    monkeypatch.setattr(document_validation, "_sandbox_command", lambda worker_args=(): command)
+    monkeypatch.setattr(
+        document_validation, "_sandbox_command", lambda worker_args=(): command
+    )
     monkeypatch.setattr(document_validation, "WORKER_TIMEOUT_SECONDS", 0.1)
 
     def record_killpg(pid, sig):
@@ -432,7 +444,11 @@ def test_sandbox_worker_output_is_bounded_and_terminated(monkeypatch):
     monkeypatch.setattr(
         document_validation,
         "_sandbox_command",
-        lambda worker_args=(): [sys.executable, "-c", "import sys;sys.stdin.buffer.read();sys.stdout.buffer.write(b'x'*1000000)"],
+        lambda worker_args=(): [
+            sys.executable,
+            "-c",
+            "import sys;sys.stdin.buffer.read();sys.stdout.buffer.write(b'x'*1000000)",
+        ],
     )
     monkeypatch.setattr(document_validation, "WORKER_OUTPUT_LIMIT", 1024)
     with pytest.raises(ValidationUnavailable):
@@ -503,12 +519,26 @@ def test_isolated_image_derivative_applies_crop_then_rotation(monkeypatch):
     source = BytesIO()
     original.save(source, format="PNG")
     stdout = WorkerStdout()
-    monkeypatch.setattr(document_validation.sys, "stdin", SimpleNamespace(buffer=BytesIO(source.getvalue())))
+    monkeypatch.setattr(
+        document_validation.sys,
+        "stdin",
+        SimpleNamespace(buffer=BytesIO(source.getvalue())),
+    )
     monkeypatch.setattr(document_validation.sys, "stdout", stdout)
     monkeypatch.setattr(
         document_validation.sys,
         "argv",
-        ["worker", "--worker", "--derive", json.dumps({"crop": {"x": 0.1, "y": 0.2, "width": 0.5, "height": 0.5}, "rotation": 90})],
+        [
+            "worker",
+            "--worker",
+            "--derive",
+            json.dumps(
+                {
+                    "crop": {"x": 0.1, "y": 0.2, "width": 0.5, "height": 0.5},
+                    "rotation": 90,
+                }
+            ),
+        ],
     )
 
     assert _worker_main() == 0
@@ -617,11 +647,10 @@ def test_original_total_size_boundary_on_request_files():
         b"x" * MAX_ORIGINAL_BYTES,
         content_type="image/png",
     )
-    assert len(
-        _files(
-            SimpleNamespace(FILES=MultiValueDict({"original_0": [exact]}))
-        )[0]
-    ) == MAX_ORIGINAL_BYTES
+    assert (
+        len(_files(SimpleNamespace(FILES=MultiValueDict({"original_0": [exact]})))[0])
+        == MAX_ORIGINAL_BYTES
+    )
     over = SimpleUploadedFile(
         "synthetic.png",
         b"x" * (MAX_ORIGINAL_BYTES + 1),

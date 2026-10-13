@@ -3,9 +3,9 @@ from datetime import timedelta
 
 import pytest
 from django.contrib.auth.models import User
+from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 from django.core.management import call_command
-from django.core.files.base import ContentFile
 from django.test import override_settings
 from django.utils import timezone
 
@@ -30,7 +30,9 @@ def synthetic_fs_storage(tmp_path):
                 "BACKEND": "django.core.files.storage.FileSystemStorage",
                 "OPTIONS": {"location": str(tmp_path)},
             },
-            "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
+            "staticfiles": {
+                "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"
+            },
         }
     ):
         yield

@@ -168,9 +168,7 @@ class PrescriptionViewSet(PrivateFileURLResponseMixin, viewsets.ModelViewSet):
         """Only the prescriptions associated to the logged in nurse."""
         queryset = self.queryset
         nurse, _ = Nurse.objects.get_or_create(user=self.request.user)
-        queryset = queryset.filter(
-            patient__nurse=nurse, document_versions__isnull=True
-        )
+        queryset = queryset.filter(patient__nurse=nurse, document_versions__isnull=True)
         return queryset
 
     def create(self, request, *args, **kwargs):

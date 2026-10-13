@@ -7,6 +7,7 @@ from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
+from nurse.document_import_schemas import ImportConflict, _error
 from nurse.document_scanner import scan_bytes
 from nurse.document_validation import (
     MAX_IMAGE_PIXELS,
@@ -14,11 +15,11 @@ from nurse.document_validation import (
     DocumentInvalid,
     validate_document,
 )
-from nurse.document_import_schemas import ImportConflict, _error
 from nurse.models import DocumentImport, DocumentImportState
 
 TTL = timedelta(hours=24)
 RECEIVE_LEASE = timedelta(seconds=120)
+
 
 def _reserve(request, patient, import_uuid, fingerprint):
     now, lease = timezone.now(), uuid.uuid4()
@@ -40,7 +41,10 @@ def _reserve(request, patient, import_uuid, fingerprint):
             operation = DocumentImport.objects.select_for_update().get(
                 owner=request.user, import_uuid=import_uuid
             )
-            if operation.patient_id != patient.pk or operation.initial_fingerprint != fingerprint:
+            if (
+                operation.patient_id != patient.pk
+                or operation.initial_fingerprint != fingerprint
+            ):
                 raise ImportConflict({"code": "idempotency_conflict"})
             if operation.state in (
                 DocumentImportState.CONFIRMED,
@@ -64,7 +68,10 @@ def _reserve(request, patient, import_uuid, fingerprint):
 def _validate_files(files, metadata):
     inspected, total_pixels = [], 0
     for content in files:
-        scan_bytes(content, getattr(settings, "DOCUMENT_CLAMAV_SOCKET", "/run/clamav/clamd.ctl"))
+        scan_bytes(
+            content,
+            getattr(settings, "DOCUMENT_CLAMAV_SOCKET", "/run/clamav/clamd.ctl"),
+        )
         details = validate_document(content)
         inspected.append(details)
         if details["mime_type"].startswith("image/"):

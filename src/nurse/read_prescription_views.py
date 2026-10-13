@@ -54,9 +54,7 @@ class PatientPrescriptionRead(PrivateReadView):
                 Prescription.objects.filter(
                     patient_id=self.patient.pk,
                     document_versions__isnull=True,
-                ).only(
-                    *PrescriptionSummarySerializer.Meta.fields
-                ),
+                ).only(*PrescriptionSummarySerializer.Meta.fields),
                 pk=prescription_id,
             )
 

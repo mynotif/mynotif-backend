@@ -64,12 +64,19 @@ def _sandbox_command(worker_args=()):
         "--unshare-ipc",
         "--unshare-uts",
         "--unshare-net",
-        "--dir", "/opt",
-        "--ro-bind", sys.prefix, "/opt/worker-venv",
-        "--ro-bind", str(Path(__file__).resolve()), "/opt/worker-validation.py",
+        "--dir",
+        "/opt",
+        "--ro-bind",
+        sys.prefix,
+        "/opt/worker-venv",
+        "--ro-bind",
+        str(Path(__file__).resolve()),
+        "/opt/worker-validation.py",
         *[part for root in runtime_roots for part in ("--ro-bind", root, root)],
-        "--dir", "/run",
-        "--tmpfs", "/run",
+        "--dir",
+        "/run",
+        "--tmpfs",
+        "/run",
         "--dev",
         "/dev",
         "--proc",
@@ -90,7 +97,9 @@ def _run_worker(content, *, worker_args=(), output_limit=WORKER_OUTPUT_LIMIT):
     if not _WORKER_SLOTS.acquire(blocking=False):
         raise ValidationUnavailable()
     try:
-        return _run_worker_held(content, worker_args=worker_args, output_limit=output_limit)
+        return _run_worker_held(
+            content, worker_args=worker_args, output_limit=output_limit
+        )
     finally:
         _WORKER_SLOTS.release()
 
@@ -235,8 +244,16 @@ def _check_pdf(reader):
         "/EF",
     }
     forbidden_actions = {
-        "/GoToR", "/GoToE", "/SubmitForm", "/ImportData", "/Launch",
-        "/JavaScript", "/Rendition", "/Movie", "/Sound", "/GoTo3DView",
+        "/GoToR",
+        "/GoToE",
+        "/SubmitForm",
+        "/ImportData",
+        "/Launch",
+        "/JavaScript",
+        "/Rendition",
+        "/Movie",
+        "/Sound",
+        "/GoTo3DView",
     }
     seen = set()
     stack = [(root, 0)]
@@ -296,7 +313,10 @@ def _worker_main():
             Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
             ImageFile.LOAD_TRUNCATED_IMAGES = False
             image = Image.open(BytesIO(content))
-            if image.format not in {"JPEG", "PNG"} or getattr(image, "n_frames", 1) != 1:
+            if (
+                image.format not in {"JPEG", "PNG"}
+                or getattr(image, "n_frames", 1) != 1
+            ):
                 sys.stdout.write('{"error":"invalid_document"}')
                 return 0
             width, height = image.size

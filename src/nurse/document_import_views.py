@@ -47,6 +47,7 @@ from nurse.models import (
 )
 from nurse.read_serializers import ReadQuerySerializer
 
+
 def _patient(request, patient_id):
     if not Nurse.objects.filter(user=request.user).exists():
         from django.http import Http404
@@ -67,7 +68,9 @@ def _operation(request, patient, import_uuid):
 
 
 def _derived_payloads(metadata, assets, original_bytes):
-    by_index = {asset.original_index: asset for asset in assets if asset.role == "original"}
+    by_index = {
+        asset.original_index: asset for asset in assets if asset.role == "original"
+    }
     result, total = [], 0
     for page in metadata["pages"]:
         if not page["rotation"] and page["crop"] is None:
@@ -186,9 +189,7 @@ def dispatch(operation, request, **kwargs):
         if page > last_page:
             raise _error("not_found", 404)
         start = (page - 1) * page_size
-        results = [
-            _serialize(item) for item in queryset[start : start + page_size]
-        ]
+        results = [_serialize(item) for item in queryset[start : start + page_size]]
         return Response(
             {
                 "count": total,
@@ -217,23 +218,34 @@ def dispatch(operation, request, **kwargs):
             inspected = _validate_files(files, metadata)
             original_assets = []
             for index, (content, details) in enumerate(zip(files, inspected)):
-                ext = "pdf" if details["mime_type"] == "application/pdf" else "png" if details["mime_type"] == "image/png" else "jpg"
+                ext = (
+                    "pdf"
+                    if details["mime_type"] == "application/pdf"
+                    else "png"
+                    if details["mime_type"] == "image/png"
+                    else "jpg"
+                )
                 key = save_staging(draft.pk, "original", content, ext)
                 stored_keys.append(key)
                 with transaction.atomic():
                     locked = DocumentImport.objects.select_for_update().get(pk=draft.pk)
-                    if locked.lease_token != lease or locked.state != DocumentImportState.VALIDATING:
+                    if (
+                        locked.lease_token != lease
+                        or locked.state != DocumentImportState.VALIDATING
+                    ):
                         raise ImportConflict({"code": "operation_in_progress"})
-                    original_assets.append(PrescriptionDocumentAsset.objects.create(
-                        document_import=locked,
-                        role=PrescriptionDocumentAsset.Role.ORIGINAL,
-                        original_index=index,
-                        storage_key=key,
-                        mime_type=details["mime_type"],
-                        byte_size=details["byte_size"],
-                        page_count=details["page_count"],
-                        sha256=details["sha256"],
-                    ))
+                    original_assets.append(
+                        PrescriptionDocumentAsset.objects.create(
+                            document_import=locked,
+                            role=PrescriptionDocumentAsset.Role.ORIGINAL,
+                            original_index=index,
+                            storage_key=key,
+                            mime_type=details["mime_type"],
+                            byte_size=details["byte_size"],
+                            page_count=details["page_count"],
+                            sha256=details["sha256"],
+                        )
+                    )
             _store_derivatives(
                 draft,
                 _derived_payloads(metadata, original_assets, dict(enumerate(files))),
@@ -251,27 +263,52 @@ def dispatch(operation, request, **kwargs):
                 locked.state = DocumentImportState.READY
                 locked.lease_token = None
                 locked.lease_expires_at = None
-                locked.save(update_fields=("metadata", "state", "lease_token", "lease_expires_at", "updated_at"))
+                locked.save(
+                    update_fields=(
+                        "metadata",
+                        "state",
+                        "lease_token",
+                        "lease_expires_at",
+                        "updated_at",
+                    )
+                )
             draft.refresh_from_db()
             return Response(_serialize(draft), status=202)
         except Exception as error:
             with transaction.atomic():
                 locked = DocumentImport.objects.select_for_update().get(pk=draft.pk)
-                if locked.lease_token == lease and locked.state != DocumentImportState.CONFIRMED:
+                if (
+                    locked.lease_token == lease
+                    and locked.state != DocumentImportState.CONFIRMED
+                ):
                     retryable = getattr(error, "status_code", 400) >= 500
-                    locked.state = DocumentImportState.RETRYABLE if retryable else DocumentImportState.REJECTED
+                    locked.state = (
+                        DocumentImportState.RETRYABLE
+                        if retryable
+                        else DocumentImportState.REJECTED
+                    )
                     locked.lease_token = None
                     locked.lease_expires_at = None
                     if not retryable:
                         locked.metadata = None
-                    locked.save(update_fields=("state", "lease_token", "lease_expires_at", "metadata", "updated_at"))
+                    locked.save(
+                        update_fields=(
+                            "state",
+                            "lease_token",
+                            "lease_expires_at",
+                            "metadata",
+                            "updated_at",
+                        )
+                    )
                     for key in stored_keys:
                         delete_private(key)
                     staging = PrescriptionDocumentAsset.objects.filter(
                         document_import=locked, document_version__isnull=True
                     )
                     staging.filter(role=PrescriptionDocumentAsset.Role.DERIVED).delete()
-                    staging.filter(role=PrescriptionDocumentAsset.Role.ORIGINAL).delete()
+                    staging.filter(
+                        role=PrescriptionDocumentAsset.Role.ORIGINAL
+                    ).delete()
             raise
 
     if operation not in {"import", "confirmation", "import-asset-content"}:
@@ -280,11 +317,17 @@ def dispatch(operation, request, **kwargs):
 
     if request.method == "HEAD":
         if operation == "import":
-            if draft.expires_at <= timezone.now() and draft.state != DocumentImportState.CONFIRMED:
+            if (
+                draft.expires_at <= timezone.now()
+                and draft.state != DocumentImportState.CONFIRMED
+            ):
                 raise ImportExpired()
             return Response(status=200)
         if operation == "import-asset-content":
-            if draft.state not in (DocumentImportState.READY, DocumentImportState.CONFIRMED):
+            if draft.state not in (
+                DocumentImportState.READY,
+                DocumentImportState.CONFIRMED,
+            ):
                 raise ImportConflict()
             asset = get_object_or_404(draft.assets.all(), pk=kwargs["asset_id"])
             response = Response(status=200)
@@ -295,7 +338,10 @@ def dispatch(operation, request, **kwargs):
             return response
 
     if operation == "import" and request.method == "GET":
-        if draft.expires_at <= timezone.now() and draft.state != DocumentImportState.CONFIRMED:
+        if (
+            draft.expires_at <= timezone.now()
+            and draft.state != DocumentImportState.CONFIRMED
+        ):
             raise ImportExpired()
         return Response(_serialize(draft))
 
@@ -306,14 +352,22 @@ def dispatch(operation, request, **kwargs):
             _if_match(request, draft)
             if draft.state != DocumentImportState.READY:
                 raise ImportConflict()
-            assets = list(draft.assets.filter(role=PrescriptionDocumentAsset.Role.ORIGINAL).order_by("original_index"))
+            assets = list(
+                draft.assets.filter(
+                    role=PrescriptionDocumentAsset.Role.ORIGINAL
+                ).order_by("original_index")
+            )
             _validate_page_manifest(metadata, assets)
             lease = uuid.uuid4()
             draft.state = DocumentImportState.VALIDATING
             draft.lease_token = lease
             draft.lease_expires_at = timezone.now() + timedelta(seconds=120)
-            draft.save(update_fields=("state", "lease_token", "lease_expires_at", "updated_at"))
-        old_derived = list(draft.assets.filter(role=PrescriptionDocumentAsset.Role.DERIVED))
+            draft.save(
+                update_fields=("state", "lease_token", "lease_expires_at", "updated_at")
+            )
+        old_derived = list(
+            draft.assets.filter(role=PrescriptionDocumentAsset.Role.DERIVED)
+        )
         old_keys, stored_keys = [], []
         try:
             payloads = _derived_payloads(metadata, assets, {})
@@ -324,7 +378,10 @@ def dispatch(operation, request, **kwargs):
                 prepared.append((source, key, details))
             with transaction.atomic():
                 locked = DocumentImport.objects.select_for_update().get(pk=draft.pk)
-                if locked.lease_token != lease or locked.state != DocumentImportState.VALIDATING:
+                if (
+                    locked.lease_token != lease
+                    or locked.state != DocumentImportState.VALIDATING
+                ):
                     raise ImportConflict({"code": "operation_in_progress"})
                 old_keys = [asset.storage_key for asset in old_derived]
                 PrescriptionDocumentAsset.objects.filter(
@@ -346,20 +403,36 @@ def dispatch(operation, request, **kwargs):
                 locked.state = DocumentImportState.READY
                 locked.lease_token = None
                 locked.lease_expires_at = None
-                locked.save(update_fields=(
-                    "metadata", "revision", "state", "lease_token",
-                    "lease_expires_at", "updated_at",
-                ))
+                locked.save(
+                    update_fields=(
+                        "metadata",
+                        "revision",
+                        "state",
+                        "lease_token",
+                        "lease_expires_at",
+                        "updated_at",
+                    )
+                )
         except Exception:
             for key in stored_keys:
                 delete_private(key)
             with transaction.atomic():
                 locked = DocumentImport.objects.select_for_update().get(pk=draft.pk)
-                if locked.lease_token == lease and locked.state == DocumentImportState.VALIDATING:
+                if (
+                    locked.lease_token == lease
+                    and locked.state == DocumentImportState.VALIDATING
+                ):
                     locked.state = DocumentImportState.READY
                     locked.lease_token = None
                     locked.lease_expires_at = None
-                    locked.save(update_fields=("state", "lease_token", "lease_expires_at", "updated_at"))
+                    locked.save(
+                        update_fields=(
+                            "state",
+                            "lease_token",
+                            "lease_expires_at",
+                            "updated_at",
+                        )
+                    )
             raise
         for key in old_keys:
             delete_private(key)
@@ -377,7 +450,15 @@ def dispatch(operation, request, **kwargs):
                 draft.metadata = None
                 draft.lease_token = None
                 draft.lease_expires_at = None
-                draft.save(update_fields=("state", "metadata", "lease_token", "lease_expires_at", "updated_at"))
+                draft.save(
+                    update_fields=(
+                        "state",
+                        "metadata",
+                        "lease_token",
+                        "lease_expires_at",
+                        "updated_at",
+                    )
+                )
                 staging = draft.assets.filter(document_version__isnull=True)
                 keys = list(staging.values_list("storage_key", flat=True))
                 for key in keys:
@@ -387,13 +468,13 @@ def dispatch(operation, request, **kwargs):
         return Response(status=204)
 
     if operation == "confirmation" and request.method == "PUT":
-        _closed_object(request.data, {"revision", "patient_confirmed", "pages_confirmed", "dates_reviewed"})
-        if (
-            type(request.data["revision"]) is not int
-            or any(
-                request.data[key] is not True
-                for key in ("patient_confirmed", "pages_confirmed", "dates_reviewed")
-            )
+        _closed_object(
+            request.data,
+            {"revision", "patient_confirmed", "pages_confirmed", "dates_reviewed"},
+        )
+        if type(request.data["revision"]) is not int or any(
+            request.data[key] is not True
+            for key in ("patient_confirmed", "pages_confirmed", "dates_reviewed")
         ):
             raise ImportConflict()
         with transaction.atomic():
@@ -404,10 +485,17 @@ def dispatch(operation, request, **kwargs):
                 return Response(_recorded(draft, draft.document_version), status=200)
             if draft.expires_at <= timezone.now():
                 raise ImportExpired()
-            if draft.state != DocumentImportState.READY or request.data["revision"] != draft.revision:
+            if (
+                draft.state != DocumentImportState.READY
+                or request.data["revision"] != draft.revision
+            ):
                 raise RevisionConflict()
             assets = list(draft.assets.all())
-            originals = [asset for asset in assets if asset.role == PrescriptionDocumentAsset.Role.ORIGINAL]
+            originals = [
+                asset
+                for asset in assets
+                if asset.role == PrescriptionDocumentAsset.Role.ORIGINAL
+            ]
             if not originals:
                 raise ImportConflict()
             for asset in assets:
@@ -442,15 +530,26 @@ def dispatch(operation, request, **kwargs):
         return Response(_recorded(draft, version), status=201)
 
     if operation == "import-asset-content" and request.method == "GET":
-        if draft.state not in (DocumentImportState.READY, DocumentImportState.CONFIRMED):
+        if draft.state not in (
+            DocumentImportState.READY,
+            DocumentImportState.CONFIRMED,
+        ):
             raise ImportConflict()
         asset = get_object_or_404(draft.assets.all(), pk=kwargs["asset_id"])
         try:
             handle = open_private(asset.storage_key)
         except Exception as error:
             raise ValidationUnavailable() from error
-        filename = "document.pdf" if asset.mime_type == "application/pdf" else "document.png" if asset.mime_type == "image/png" else "document.jpg"
-        response = FileResponse(handle, content_type=asset.mime_type, as_attachment=True, filename=filename)
+        filename = (
+            "document.pdf"
+            if asset.mime_type == "application/pdf"
+            else "document.png"
+            if asset.mime_type == "image/png"
+            else "document.jpg"
+        )
+        response = FileResponse(
+            handle, content_type=asset.mime_type, as_attachment=True, filename=filename
+        )
         response["X-Content-Type-Options"] = "nosniff"
         response["Cache-Control"] = "private, no-store"
         response["Pragma"] = "no-cache"

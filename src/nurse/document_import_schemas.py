@@ -16,6 +16,7 @@ IMPORT_UUID_RE = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
 )
 
+
 class ImportError(APIException):
     status_code = 400
     default_detail = {"code": "invalid_metadata"}
@@ -77,7 +78,9 @@ def _validate_metadata(value):
         else:
             raise _error("invalid_dates", 400)
     if dates["start_date"] and dates["end_date"]:
-        if date.fromisoformat(dates["start_date"]) > date.fromisoformat(dates["end_date"]):
+        if date.fromisoformat(dates["start_date"]) > date.fromisoformat(
+            dates["end_date"]
+        ):
             raise _error("invalid_dates", 400)
     pages = value["pages"]
     if not isinstance(pages, list) or not 1 <= len(pages) <= MAX_PAGES:
@@ -86,7 +89,10 @@ def _validate_metadata(value):
     for page in pages:
         _closed_object(page, {"asset_index", "source_page", "rotation", "crop"})
         index, source_page, rotation, crop = (
-            page["asset_index"], page["source_page"], page["rotation"], page["crop"]
+            page["asset_index"],
+            page["source_page"],
+            page["rotation"],
+            page["crop"],
         )
         if (
             type(index) is not int
@@ -106,13 +112,26 @@ def _validate_metadata(value):
             ):
                 raise _error("invalid_pages", 400)
             x, y, width, height = values
-            if min(values) < 0 or width <= 0 or height <= 0 or x + width > 1 or y + height > 1:
+            if (
+                min(values) < 0
+                or width <= 0
+                or height <= 0
+                or x + width > 1
+                or y + height > 1
+            ):
                 raise _error("invalid_pages", 400)
             crop = {key: float(crop[key]) for key in ("x", "y", "width", "height")}
         clean_pages.append(
-            {"asset_index": index, "source_page": source_page, "rotation": rotation, "crop": crop}
+            {
+                "asset_index": index,
+                "source_page": source_page,
+                "rotation": rotation,
+                "crop": crop,
+            }
         )
-    if clean_pages != sorted(clean_pages, key=lambda item: (item["asset_index"], item["source_page"])):
+    if clean_pages != sorted(
+        clean_pages, key=lambda item: (item["asset_index"], item["source_page"])
+    ):
         raise _error("invalid_pages", 400)
     return {
         "prescribing_doctor": doctor,
@@ -125,7 +144,10 @@ def _validate_metadata(value):
 def _read_metadata(request, *, multipart=False):
     if multipart:
         allowed = {"metadata"} | set(request.FILES.keys())
-        if set(request.data.keys()) != allowed or len(request.data.getlist("metadata")) != 1:
+        if (
+            set(request.data.keys()) != allowed
+            or len(request.data.getlist("metadata")) != 1
+        ):
             raise ImportError()
         raw = request.data.get("metadata")
     else:
@@ -192,19 +214,24 @@ def _asset_data(asset):
         "sha256": asset.sha256,
         "role": asset.role,
         "original_index": asset.original_index,
-        "source_asset_id": str(asset.source_asset_id) if asset.source_asset_id else None,
+        "source_asset_id": str(asset.source_asset_id)
+        if asset.source_asset_id
+        else None,
     }
 
 
 def _serialize(operation):
     assets = list(operation.assets.order_by("original_index", "created_at"))
-    by_index = {asset.original_index: asset for asset in assets if asset.role == "original"}
-    derived_by_source = {
-        str(asset.source_asset_id): asset
-        for asset in assets
-        if asset.role == "derived"
+    by_index = {
+        asset.original_index: asset for asset in assets if asset.role == "original"
     }
-    ready = operation.state in (DocumentImportState.READY, DocumentImportState.CONFIRMED)
+    derived_by_source = {
+        str(asset.source_asset_id): asset for asset in assets if asset.role == "derived"
+    }
+    ready = operation.state in (
+        DocumentImportState.READY,
+        DocumentImportState.CONFIRMED,
+    )
     metadata = operation.metadata if ready else None
     pages = []
     if ready and metadata:
@@ -233,8 +260,10 @@ def _serialize(operation):
         "pages": pages,
         "prescription_id": operation.prescription_id,
         "error_code": (
-            "validation_unavailable" if operation.state == DocumentImportState.RETRYABLE
-            else "invalid_document" if operation.state == DocumentImportState.REJECTED
+            "validation_unavailable"
+            if operation.state == DocumentImportState.RETRYABLE
+            else "invalid_document"
+            if operation.state == DocumentImportState.REJECTED
             else None
         ),
     }
@@ -258,7 +287,9 @@ def _if_match(request, operation):
 def _recorded(operation, version):
     prescription = operation.prescription
     assets = list(version.assets.order_by("created_at"))
-    by_index = {asset.original_index: asset for asset in assets if asset.role == "original"}
+    by_index = {
+        asset.original_index: asset for asset in assets if asset.role == "original"
+    }
     derived_by_source = {
         str(asset.source_asset_id): asset for asset in assets if asset.role == "derived"
     }
@@ -294,7 +325,9 @@ def _recorded(operation, version):
 def _validate_page_manifest(metadata, assets):
     expected = []
     for asset in assets:
-        expected.extend((asset.original_index, page) for page in range(1, asset.page_count + 1))
+        expected.extend(
+            (asset.original_index, page) for page in range(1, asset.page_count + 1)
+        )
     actual = [(page["asset_index"], page["source_page"]) for page in metadata["pages"]]
     if expected != actual:
         raise _error("invalid_pages", 400)
