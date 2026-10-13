@@ -147,6 +147,25 @@ def test_changed_initial_content_conflicts_for_same_account_uuid(
     assert Prescription.objects.count() == 0
 
 
+def test_head_routes_are_scoped_and_never_open_import_content(tmp_path, ready_backend):
+    client, patient, _ = api_context()
+    import_id = uuid.uuid4()
+    url, data, key = request_payload(patient.pk, import_id)
+    with fs_storage(tmp_path):
+        created = client.post(url, data=data, format="multipart", HTTP_IDEMPOTENCY_KEY=key)
+        assert created.status_code == 202
+        asset_id = created.data["assets"][0]["asset_id"]
+        with pytest.MonkeyPatch.context() as patcher:
+            patcher.setattr("nurse.document_import_views.open_private", lambda *_args: (_ for _ in ()).throw(AssertionError("storage opened")))
+            assert client.head(f"{url}{import_id}/").status_code == 200
+            assert client.head(f"{url}{import_id}/assets/{asset_id}/content/").status_code == 200
+        assert client.head(url).status_code == 200
+    foreign_nurse = Nurse.objects.create(user=User.objects.create_user(username="synthetic-foreign-head"))
+    foreign_patient = Patient.objects.create(firstname="Autre", lastname="Synthétique")
+    foreign_nurse.patients.add(foreign_patient)
+    assert client.head(f"/api/v3/patients/{foreign_patient.pk}/document-imports/").status_code == 404
+
+
 def test_patch_revision_and_all_human_confirmations_gate_single_record(
     tmp_path, ready_backend
 ):

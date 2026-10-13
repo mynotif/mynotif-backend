@@ -130,6 +130,8 @@ def dispatch(operation, request, **kwargs):
     if operation == "capabilities":
         if request.method == "OPTIONS":
             return Response({"allowed_methods": "GET, HEAD, OPTIONS"})
+        if request.method == "HEAD":
+            return Response(status=200)
         if request.method != "GET":
             return Response(status=405)
         return Response(
@@ -166,6 +168,9 @@ def dispatch(operation, request, **kwargs):
                     raise _error("invalid_state", 409)
                 get_object_or_404(draft.assets.all(), pk=kwargs["asset_id"])
         return Response({"allowed_methods": methods})
+
+    if operation == "imports" and request.method == "HEAD":
+        return Response(status=200)
 
     if operation == "imports" and request.method == "GET":
         query = ReadQuerySerializer(data=request.query_params)
@@ -272,6 +277,22 @@ def dispatch(operation, request, **kwargs):
     if operation not in {"import", "confirmation", "import-asset-content"}:
         raise _error("not_found", 404)
     draft = _operation(request, patient, kwargs["import_uuid"])
+
+    if request.method == "HEAD":
+        if operation == "import":
+            if draft.expires_at <= timezone.now() and draft.state != DocumentImportState.CONFIRMED:
+                raise ImportExpired()
+            return Response(status=200)
+        if operation == "import-asset-content":
+            if draft.state not in (DocumentImportState.READY, DocumentImportState.CONFIRMED):
+                raise ImportConflict()
+            asset = get_object_or_404(draft.assets.all(), pk=kwargs["asset_id"])
+            response = Response(status=200)
+            response["Content-Type"] = asset.mime_type
+            response["Content-Length"] = str(asset.byte_size)
+            response["Content-Disposition"] = 'attachment; filename="document"'
+            response["X-Content-Type-Options"] = "nosniff"
+            return response
 
     if operation == "import" and request.method == "GET":
         if draft.expires_at <= timezone.now() and draft.state != DocumentImportState.CONFIRMED:
