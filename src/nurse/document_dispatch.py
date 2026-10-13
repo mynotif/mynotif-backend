@@ -123,6 +123,11 @@ class DocumentV3DispatchView(APIView):
     def delete(self, request, *args, **kwargs):
         return self.dispatch_operation(request, *args, **kwargs)
 
+    def options(self, request, *args, **kwargs):
+        # Capability handlers authorize the patient/object before returning the
+        # route's method list. DRF's generic OPTIONS bypasses that object check.
+        return self.dispatch_operation(request, *args, **kwargs)
+
     def finalize_response(self, request, response, *args, **kwargs):
         response = super().finalize_response(request, response, *args, **kwargs)
         response["Cache-Control"] = "private, no-store"

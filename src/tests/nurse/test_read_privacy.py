@@ -180,3 +180,28 @@ def test_v3_route_skeleton_exposes_only_capability_methods_in_openapi():
     }
     for path, methods in expected.items():
         assert set(paths[path]) == methods
+
+
+def test_v3_dispatch_forwards_options_to_object_authorization_handler():
+    from unittest.mock import patch
+
+    from django.contrib.auth.models import User
+    from rest_framework.response import Response
+    from rest_framework.test import APIRequestFactory, force_authenticate
+
+    from nurse.document_dispatch import DocumentV3DispatchView
+
+    request = APIRequestFactory().options("/api/v3/patients/1/document-imports/")
+    force_authenticate(request, user=User(pk=1))
+    view = DocumentV3DispatchView.as_view(
+        handler_module="nurse.document_import_views", operation="imports"
+    )
+    with patch("nurse.document_dispatch.import_module") as import_module:
+        import_module.return_value.dispatch.return_value = Response(
+            {"allowed_methods": "GET, HEAD, POST, OPTIONS"}
+        )
+        response = view(request, patient_id=1)
+    assert response.status_code == 200
+    assert response.data == {"allowed_methods": "GET, HEAD, POST, OPTIONS"}
+    forwarded = import_module.return_value.dispatch.call_args.args[1]
+    assert forwarded.method == "OPTIONS"
