@@ -20,8 +20,8 @@ from nurse.models import (
 )
 from nurse.read_api import PAGE_PARAMETERS, PrivateReadView, ReadAPIError
 from nurse.read_document_serializers import (
-    DocumentReadErrorSerializer,
     DocumentManifestSerializer,
+    DocumentReadErrorSerializer,
     PrescriptionV3PageSerializer,
 )
 from nurse.read_prescription_serializers import (
