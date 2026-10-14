@@ -1,6 +1,7 @@
 import sys
 import uuid
 from datetime import date, timedelta
+from importlib import import_module
 from types import ModuleType
 
 import pytest
@@ -11,6 +12,7 @@ from django.test import override_settings
 from django.utils import timezone
 from rest_framework.authtoken.models import Token
 from rest_framework.exceptions import APIException, UnsupportedMediaType
+from rest_framework.response import Response
 from rest_framework.test import APIClient
 
 from nurse.models import (
@@ -144,7 +146,16 @@ def test_v3_rejects_legacy_token_authentication():
     assert response["Pragma"] == "no-cache"
 
 
-def test_unimplemented_v3_handler_fails_closed(document_records, monkeypatch):
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("get", "/api/v3/document-capabilities/"),
+        ("options", "/api/v3/patients/1/document-imports/"),
+    ],
+)
+def test_unimplemented_v3_handler_fails_closed(
+    document_records, monkeypatch, method, path
+):
     owner, _, _, _ = document_records
     import nurse.document_dispatch as dispatch
 
@@ -159,7 +170,7 @@ def test_unimplemented_v3_handler_fails_closed(document_records, monkeypatch):
     client = APIClient()
     client.force_authenticate(owner)
 
-    response = client.get("/api/v3/document-capabilities/")
+    response = getattr(client, method)(path)
 
     assert response.status_code == 503
     assert response.data["code"] == "service_unavailable"
@@ -209,7 +220,7 @@ def test_v3_exception_preserves_stable_contract_code(document_records, monkeypat
 
     response = client.generic(
         "POST",
-        "/api/v3/document-capabilities/",
+        "/api/v3/patients/1/document-imports/",
         b"synthetic",
         content_type="application/octet-stream",
     )
@@ -298,8 +309,35 @@ def test_v3_exception_preserves_only_allowlisted_contract_codes(
     ],
 )
 def test_v3_cors_preflight_requires_auth_and_advertises_route_methods(
-    path, requested_method, allowed_methods
+    path, requested_method, allowed_methods, document_records, monkeypatch
 ):
+    owner, patient, _, operation = document_records
+    from nurse.models import Nurse
+
+    nurse = Nurse.objects.create(user=owner)
+    nurse.patients.add(patient)
+    path = path.replace("/patients/1/", f"/patients/{patient.pk}/")
+    path = path.replace(
+        "00000000-0000-0000-0000-000000000001", str(operation.import_uuid)
+    )
+    # Storage-only branches deliberately have no import handler yet. Exercise
+    # dispatcher authentication/CORS with a synthetic handler there; complete
+    # import branches use their real patient/object authorization unchanged.
+    try:
+        import_module("nurse.document_import_views")
+    except ModuleNotFoundError as error:
+        assert error.name == "nurse.document_import_views"
+        module = ModuleType("nurse.document_import_views")
+
+        def preflight(operation_name, request, **kwargs):
+            assert request.method == "OPTIONS"
+            assert request.user == owner
+            assert kwargs["patient_id"] == patient.pk
+            return Response({"allowed_methods": allowed_methods})
+
+        module.dispatch = preflight
+        monkeypatch.setitem(sys.modules, module.__name__, module)
+
     headers = {
         "HTTP_ORIGIN": "https://synthetic.invalid",
         "HTTP_ACCESS_CONTROL_REQUEST_METHOD": requested_method,
@@ -313,7 +351,6 @@ def test_v3_cors_preflight_requires_auth_and_advertises_route_methods(
         )
         assert requested_method in unauthenticated["Access-Control-Allow-Methods"]
 
-        owner = User.objects.create_user(username="synthetic-cors-owner")
         authenticated = APIClient()
         authenticated.force_authenticate(owner)
         response = authenticated.options(path, **headers)
