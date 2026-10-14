@@ -51,9 +51,10 @@ class PatientPrescriptionRead(PrivateReadView):
         if "prescription_id" in kwargs:
             prescription_id = positive_id(kwargs["prescription_id"])
             self.prescription = get_object_or_404(
-                Prescription.objects.filter(patient_id=self.patient.pk).only(
-                    *PrescriptionSummarySerializer.Meta.fields
-                ),
+                Prescription.objects.filter(
+                    patient_id=self.patient.pk,
+                    document_versions__isnull=True,
+                ).only(*PrescriptionSummarySerializer.Meta.fields),
                 pk=prescription_id,
             )
 
@@ -74,7 +75,10 @@ class PrescriptionReadList(PatientPrescriptionRead):
     def get(self, request, patient_id):
         query = self.query(request)
         prescriptions = (
-            Prescription.objects.filter(patient_id=self.patient.pk)
+            Prescription.objects.filter(
+                patient_id=self.patient.pk,
+                document_versions__isnull=True,
+            )
             .order_by("-end_date", "-id")
             .only(*PrescriptionSummarySerializer.Meta.fields)
         )

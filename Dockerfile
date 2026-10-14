@@ -2,6 +2,8 @@ FROM python:3.13-alpine AS base
 
 WORKDIR /app
 
+RUN apk add --no-cache bubblewrap
+
 COPY requirements.txt /app/
 RUN python3.13 -m venv /app/venv && /app/venv/bin/pip install --no-cache-dir -r requirements.txt
 COPY src /app/src
@@ -16,6 +18,8 @@ ENV PORT ${PORT}
 ENV VERSION ${VERSION}
 ENV PYTHONUNBUFFERED=1
 WORKDIR /app
+
+RUN apk add --no-cache bubblewrap
 
 COPY --from=base /app/venv/ /app/venv/
 COPY src /app/src

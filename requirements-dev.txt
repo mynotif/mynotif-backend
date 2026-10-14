@@ -210,6 +210,10 @@ pyjwt==2.10.1
     #   -c requirements.txt
     #   djangorestframework-simplejwt
     #   social-auth-core
+pypdf==6.20.1
+    # via
+    #   -c requirements.txt
+    #   mynotif
 pytest==9.1.1
     # via
     #   mynotif
