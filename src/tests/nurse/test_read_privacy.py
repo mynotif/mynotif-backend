@@ -28,6 +28,9 @@ def test_routes_redact_identifiers():
         == "/api/v2/patients/{patient_id}/prescriptions/{prescription_id}/"
     )
     assert read_route("/api/v1/patient/?search=" + MARKER) is None
+    assert read_route("/api/v3/patients/913579/document-imports/abc/") == (
+        "/api/v3/private-document/"
+    )
 
 
 def test_request_and_dev_server_logs_are_redacted(caplog):
@@ -42,6 +45,15 @@ def test_request_and_dev_server_logs_are_redacted(caplog):
     assert "913579" not in caplog.text and "824680" not in caplog.text
     assert "{patient_id}" in caplog.text and "{prescription_id}" in caplog.text
     assert all(getattr(record, "request", None) is None for record in caplog.records)
+
+    v3_path = "/api/v3/patients/913579/document-imports/824680/?secret=" + MARKER
+    v3_request = RequestFactory().get(v3_path)
+    for logger in ("django.request", "django.server"):
+        logging.getLogger(logger).warning(
+            "Synthetic GET %s", v3_path, extra={"request": v3_request}
+        )
+    assert MARKER not in caplog.text
+    assert "913579" not in caplog.text and "824680" not in caplog.text
 
 
 def test_context_sanitizes_sql_exception_tokens_body_and_sentry(caplog):
@@ -99,6 +111,16 @@ def test_sentry_events_transactions_breadcrumbs_scoped_to_reads():
     ordinary = {"request": {"url": "https://test.invalid/api/v1/version/"}}
     assert before_send(ordinary, {}) is ordinary
     assert before_breadcrumb(ordinary, {}) is ordinary
+    private_v3 = {
+        "request": {
+            "url": "https://test.invalid/api/v3/patients/913579/document-imports/abc/"
+        }
+    }
+    assert before_send(private_v3, {}) is None
+    assert (
+        before_breadcrumb({"message": "GET " + private_v3["request"]["url"]}, {})
+        is None
+    )
 
 
 @pytest.mark.django_db
@@ -129,3 +151,57 @@ def test_runtime_commands_explicitly_load_private_gunicorn_config():
     assert "COPY gunicorn.conf.py /app/gunicorn.conf.py" in docker
     assert "--config /app/gunicorn.conf.py" in docker
     assert "--config gunicorn.conf.py" in (root / "Makefile").read_text()
+
+
+def test_v3_route_skeleton_exposes_only_capability_methods_in_openapi():
+    from drf_spectacular.generators import SchemaGenerator
+
+    paths = SchemaGenerator().get_schema(request=None, public=True)["paths"]
+    expected = {
+        "/api/v3/document-capabilities/": {"get"},
+        "/api/v3/patients/{patient_id}/document-imports/": {"get", "post"},
+        "/api/v3/patients/{patient_id}/document-imports/{import_uuid}/": {
+            "get",
+            "patch",
+            "delete",
+        },
+        "/api/v3/patients/{patient_id}/document-imports/{import_uuid}/confirmation/": {
+            "put"
+        },
+        "/api/v3/patients/{patient_id}/document-imports/{import_uuid}/assets/"
+        "{asset_id}/content/": {"get"},
+        "/api/v3/patients/{patient_id}/prescriptions/": {"get"},
+        "/api/v3/patients/{patient_id}/prescriptions/{prescription_id}/": {"get"},
+        "/api/v3/patients/{patient_id}/prescriptions/{prescription_id}/documents/": {
+            "get"
+        },
+        "/api/v3/patients/{patient_id}/prescriptions/{prescription_id}/documents/"
+        "{asset_id}/content/": {"get"},
+    }
+    for path, methods in expected.items():
+        assert set(paths[path]) == methods
+
+
+def test_v3_dispatch_forwards_options_to_object_authorization_handler():
+    from unittest.mock import patch
+
+    from django.contrib.auth.models import User
+    from rest_framework.response import Response
+    from rest_framework.test import APIRequestFactory, force_authenticate
+
+    from nurse.document_dispatch import DocumentV3DispatchView
+
+    request = APIRequestFactory().options("/api/v3/patients/1/document-imports/")
+    force_authenticate(request, user=User(pk=1))
+    view = DocumentV3DispatchView.as_view(
+        handler_module="nurse.document_import_views", operation="imports"
+    )
+    with patch("nurse.document_dispatch.import_module") as import_module:
+        import_module.return_value.dispatch.return_value = Response(
+            {"allowed_methods": "GET, HEAD, POST, OPTIONS"}
+        )
+        response = view(request, patient_id=1)
+    assert response.status_code == 200
+    assert response.data == {"allowed_methods": "GET, HEAD, POST, OPTIONS"}
+    forwarded = import_module.return_value.dispatch.call_args.args[1]
+    assert forwarded.method == "OPTIONS"

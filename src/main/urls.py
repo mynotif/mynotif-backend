@@ -68,6 +68,11 @@ v2_urlpatterns = [
     ),
 ]
 
+v3_urlpatterns = [
+    path("", include(("nurse.document_import_urls", "document_imports"))),
+    path("", include(("nurse.document_reads_urls", "document_reads"))),
+]
+
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("account/", include("rest_framework.urls")),
@@ -93,4 +98,5 @@ urlpatterns = [
     ),
     path("api/v1/", include((v1_urlpatterns, "v1"), namespace="v1")),
     path("api/v2/", include((v2_urlpatterns, "v2"), namespace="v2")),
+    path("api/v3/", include((v3_urlpatterns, "v3"), namespace="v3")),
 ]
