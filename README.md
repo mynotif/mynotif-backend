@@ -186,3 +186,9 @@ HTTP route proof is `scripts/m03-http-proof.py`. These do not qualify production
 or the future Android adapters.
 
 Les résumés d’ordonnances v2 sont décrits dans [prescriptions-v2](docs/prescriptions-v2.md), avec les preuves synthétiques et limites dans [Verify #269](docs/agentic/work/269/verify.md).
+
+## Contrat métier C12 — dates et rappels
+
+Le [contrat C12](docs/c12-reminder-contract.md) fixe les règles approuvées et les
+cas synthétiques T01–T25. Son adoption documentaire sous #229 ne réalise pas
+B06/#236 et ne qualifie ni les envois ni la production.
