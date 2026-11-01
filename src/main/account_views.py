@@ -12,6 +12,15 @@ class AccountViewSet(DjoserUserViewSet):
     def get_queryset(self):
         return super().get_queryset().filter(pk=self.request.user.pk)
 
+    def perform_destroy(self, instance):
+        from main.session_services import revoke_all
+
+        with transaction.atomic():
+            user = get_user_model().objects.select_for_update().get(pk=instance.pk)
+            revoke_all(user)
+            # The model pre_delete hook also scrubs identity from tombstones.
+            super().perform_destroy(user)
+
     def get_throttles(self):
         if self.action in ("create", "reset_password"):
             self.throttle_scope = (
