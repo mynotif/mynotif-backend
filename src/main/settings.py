@@ -73,6 +73,7 @@ CUSTOM_APPS = (
 INSTALLED_APPS = DJANGO_CORE_APP + THIRDPARTY_APP + CUSTOM_APPS
 
 MIDDLEWARE = [
+    "nurse.push_interfaces.PushPrivacyMiddleware",
     "nurse.read_privacy.PrivateReadPrivacyMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
@@ -276,7 +277,7 @@ DOMAIN = os.environ.get("TEMPLATED_MAIL_DOMAIN", "")
 SITE_NAME = os.environ.get("TEMPLATED_SITE_NAME", "")
 
 if SENTRY_DSN := os.environ.get("SENTRY_DSN"):
-    from nurse.read_privacy import before_breadcrumb, before_send
+    from nurse.push_interfaces import before_breadcrumb, before_send
 
     sentry_sdk.init(
         dsn=SENTRY_DSN,
@@ -306,3 +307,7 @@ FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:3000")
 # https://github.com/mynotif/mynotif-frontend/blob/3d1c858/src/hook/prescriptionManagement.ts#L4
 FREE_PATIENT_LIMIT = 15
 FREE_PRESCRIPTION_LIMIT = 15
+
+# Closed first B07 lot. No environment switch can install a proof double or a
+# provider/KMS adapter; a later qualified integration must supply the assembly.
+B07_API_ENABLED = False

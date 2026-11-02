@@ -137,6 +137,9 @@ def _revoke_session(session, now):
     AuthToken.objects.filter(session=session, revoked_at__isnull=True).update(
         revoked_at=now
     )
+    from nurse.push_services import invalidate_session
+
+    invalidate_session(session.pk, now)
 
 
 def rotate(refresh_token, request_id):
@@ -279,7 +282,7 @@ def authenticate_access(raw_token):
         or session.password_fingerprint != fingerprint(user)
     ):
         if session.password_fingerprint != fingerprint(user):
-            _revoke_session(session, now)
+            revoke(session, now)
         return None
     return user, token
 
@@ -287,6 +290,7 @@ def authenticate_access(raw_token):
 def revoke(session, now=None):
     now = now or timezone.now()
     with transaction.atomic():
+        User.objects.select_for_update().get(pk=session.user_id)
         locked = AuthSession.objects.select_for_update().get(pk=session.pk)
         _revoke_session(locked, now)
 
@@ -304,3 +308,6 @@ def revoke_all(user):
         from rest_framework.authtoken.models import Token
 
         Token.objects.filter(user=locked).delete()
+        from nurse.push_services import invalidate_account
+
+        invalidate_account(locked.pk)

@@ -291,3 +291,14 @@ class PrescriptionDocumentAsset(models.Model):
 class UserOneSignalProfile(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE)
     subscription_id = models.CharField(max_length=255, blank=True, null=True)
+
+
+# Register the additive registry models exactly once with the nurse app.
+from nurse.push_models import (  # noqa: E402,F401
+    PushBinding,
+    PushDestination,
+    PushEnrollment,
+    PushQuota,
+    PushRegistryState,
+    PushTokenVersion,
+)
