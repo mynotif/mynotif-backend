@@ -14,9 +14,16 @@ ORDERINGS = ("end_date_asc", "end_date_desc")
 class ExpirySchema(AutoSchema):
     def _map_serializer(self, serializer, direction, bypass_extensions=False):
         result = super()._map_serializer(serializer, direction, bypass_extensions)
-        if serializer.__class__.__module__ == __name__:
+        if serializer.__class__.__module__ in (
+            __name__,
+            "nurse.expiry_command_serializers",
+        ):
             result["additionalProperties"] = False
-            result["required"] = sorted(result.get("properties", {}))
+            required = sorted(result.get("properties", {}))
+            if required:
+                result["required"] = required
+            else:
+                result.pop("required", None)
         return result
 
 

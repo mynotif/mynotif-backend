@@ -5,6 +5,13 @@ from nurse.read_privacy import read_route
 
 def private_read_methods(path):
     """Return the methods exposed by a private v3 endpoint."""
+    if path.startswith("/api/v4/expiry/"):
+        if path.endswith("/date-correction/"):
+            return "PUT, OPTIONS"
+        return {
+            "/api/v4/expiry/commands/": "GET, HEAD, POST, OPTIONS",
+            "/api/v4/expiry/reconciliation-fence/": "POST, OPTIONS",
+        }.get(path, "GET, HEAD, OPTIONS")
     if not path.startswith("/api/v3/"):
         return "GET, HEAD, OPTIONS"
     if path == "/api/v3/patients/" or path.endswith("/prescriptions/"):

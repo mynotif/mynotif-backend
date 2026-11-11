@@ -156,6 +156,7 @@ class ExpiryAccount:
 
 @pytest.fixture
 def expiry_settings(settings, tmp_path):
+    settings.EXPIRY_COMMANDS_ENABLED = False
     settings.PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
     settings.MEDIA_ROOT = str(tmp_path)
     settings.STORAGES = {
@@ -680,11 +681,9 @@ def test_get_does_not_write_clinical_data_or_create_read_authority(expiry_setup)
     assert writes == []
 
 
-def test_mutations_remain_unavailable_and_openapi_exposes_only_reads(expiry_setup):
+def test_closed_runtime_and_openapi_expose_additive_correction_contract(expiry_setup):
     h = expiry_setup
     assert_error(h.client.post(LIST, {}, format="json"), 405, "method_not_allowed")
-    for path in [ROOT + "commands/", ROOT + "reconciliation-fence/"]:
-        assert h.client.post(path, {}, format="json").status_code == 404
     schema = SchemaGenerator().get_schema(request=None, public=True)
     paths = {
         path: value for path, value in schema["paths"].items() if path.startswith(ROOT)
@@ -692,8 +691,19 @@ def test_mutations_remain_unavailable_and_openapi_exposes_only_reads(expiry_setu
     assert set(paths) == {
         LIST,
         ROOT + "patients/{patient_id}/prescriptions/{prescription_id}/",
+        ROOT + "commands/",
+        ROOT + "commands/{command_id}/",
+        ROOT + "commands/{command_id}/date-correction/",
+        ROOT + "reconciliation-fence/",
     }
-    assert all(set(operations) == {"get"} for operations in paths.values())
+    assert {path: set(operations) for path, operations in paths.items()} == {
+        LIST: {"get"},
+        ROOT + "patients/{patient_id}/prescriptions/{prescription_id}/": {"get"},
+        ROOT + "commands/": {"get", "post"},
+        ROOT + "commands/{command_id}/": {"get"},
+        ROOT + "commands/{command_id}/date-correction/": {"put"},
+        ROOT + "reconciliation-fence/": {"post"},
+    }
     operation = paths[LIST]["get"]
     assert {p["name"] for p in operation["parameters"]} == {
         "filter",
@@ -711,3 +721,45 @@ def test_mutations_remain_unavailable_and_openapi_exposes_only_reads(expiry_setu
     assert set(response_schema["properties"]) == PAGE_KEYS
     assert set(response_schema["required"]) == PAGE_KEYS
     assert response_schema["additionalProperties"] is False
+
+    def resolve(value):
+        while "$ref" in value:
+            value = schema["components"]["schemas"][value["$ref"].split("/")[-1]]
+        return value
+
+    expected_requests = {
+        (ROOT + "commands/", "post"): {"kind", "intent"},
+        (ROOT + "commands/{command_id}/date-correction/", "put"): {
+            "mutation_epoch",
+            "patient_id",
+            "prescription_id",
+            "expected_revision",
+            "start_date",
+            "end_date",
+        },
+        (ROOT + "reconciliation-fence/", "post"): set(),
+    }
+    for (path, method), keys in expected_requests.items():
+        operation = paths[path][method]
+        body = resolve(
+            operation["requestBody"]["content"]["application/json"]["schema"]
+        )
+        assert set(body.get("properties", {})) == keys
+        assert set(body.get("required", [])) == keys
+        assert body["additionalProperties"] is False
+    put = paths[ROOT + "commands/{command_id}/date-correction/"]["put"]
+    result = resolve(put["responses"]["200"]["content"]["application/json"]["schema"])
+    assert set(result["properties"]) == {
+        "command_id",
+        "mutation_epoch",
+        "kind",
+        "state",
+        "recorded_at",
+        "result",
+        "error",
+    }
+    assert result["additionalProperties"] is False
+    assert {
+        parameter["name"]
+        for parameter in paths[ROOT + "commands/"]["get"].get("parameters", [])
+    } == {"cursor"}

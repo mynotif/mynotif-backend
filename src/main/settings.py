@@ -311,3 +311,9 @@ FREE_PRESCRIPTION_LIMIT = 15
 # Closed first B07 lot. No environment switch can install a proof double or a
 # provider/KMS adapter; a later qualified integration must supply the assembly.
 B07_API_ENABLED = False
+
+# Correction authority is opened explicitly only after writer/restore qualification.
+EXPIRY_COMMANDS_ENABLED = False
+EXPIRY_COMMAND_NAMESPACE = os.environ.get("EXPIRY_COMMAND_NAMESPACE", "")
+EXPIRY_COMMAND_ACTIVE_KEY = os.environ.get("EXPIRY_COMMAND_ACTIVE_KEY", "")
+EXPIRY_COMMAND_KEYS = {}

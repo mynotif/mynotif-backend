@@ -215,6 +215,17 @@ def test_v3_dispatch_forwards_options_to_object_authorization_handler():
             "/api/v4/expiry/patients/913579/prescriptions/824680/",
             "/api/v4/expiry/patients/{patient_id}/prescriptions/{prescription_id}/",
         ),
+        ("/api/v4/expiry/commands/", "/api/v4/expiry/private/"),
+        (
+            "/api/v4/expiry/commands/8be0bc17-c4e5-497e-a58e-f639b746ab91/",
+            "/api/v4/expiry/private/",
+        ),
+        (
+            "/api/v4/expiry/commands/"
+            "8be0bc17-c4e5-497e-a58e-f639b746ab91/date-correction/",
+            "/api/v4/expiry/private/",
+        ),
+        ("/api/v4/expiry/reconciliation-fence/", "/api/v4/expiry/private/"),
     ],
 )
 def test_expiry_routes_redact_identifiers_and_sentry(path, skeleton, caplog):
@@ -237,3 +248,4 @@ def test_expiry_routes_redact_identifiers_and_sentry(path, skeleton, caplog):
     PrivateReadPrivacyMiddleware(response)(request)
     assert MARKER not in caplog.text
     assert "913579" not in caplog.text and "824680" not in caplog.text
+    assert "8be0bc17-c4e5-497e-a58e-f639b746ab91" not in caplog.text
