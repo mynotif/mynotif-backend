@@ -293,6 +293,11 @@ class UserOneSignalProfile(models.Model):
     subscription_id = models.CharField(max_length=255, blank=True, null=True)
 
 
+from nurse.expiry_models import (  # noqa: E402,F401
+    ExpiryAccountState,
+    ExpiryPrescriptionState,
+)
+
 # Register the additive registry models exactly once with the nurse app.
 from nurse.push_models import (  # noqa: E402,F401
     PushBinding,

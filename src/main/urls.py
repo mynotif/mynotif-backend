@@ -100,4 +100,5 @@ urlpatterns = [
     path("api/v1/", include((v1_urlpatterns, "v1"), namespace="v1")),
     path("api/v2/", include((v2_urlpatterns, "v2"), namespace="v2")),
     path("api/v3/", include((v3_urlpatterns, "v3"), namespace="v3")),
+    path("api/v4/expiry/", include("nurse.expiry_urls")),
 ]

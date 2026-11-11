@@ -4,6 +4,8 @@ import logging
 from contextvars import ContextVar
 from urllib.parse import urlsplit
 
+from django.http import JsonResponse
+
 _read_route = ContextVar("private_read_route", default=None)
 _RECORD_KEYS = frozenset(logging.LogRecord("", 0, "", 0, "", (), None).__dict__)
 
@@ -12,6 +14,15 @@ def read_route(path):
     if not isinstance(path, str):
         return None
     path = urlsplit(path).path
+    if path.startswith("/api/v4/expiry/"):
+        if path == "/api/v4/expiry/prescriptions/":
+            return path
+        parts = path.rstrip("/").split("/")
+        if len(parts) == 8 and parts[4] == "patients" and parts[6] == "prescriptions":
+            return (
+                "/api/v4/expiry/patients/{patient_id}/prescriptions/{prescription_id}/"
+            )
+        return "/api/v4/expiry/private/"
     if path.startswith("/api/v3/"):
         # v3 contains private drafts, confirmation state and clinical records.
         # A single closed label avoids retaining patient/import/asset IDs.
@@ -41,7 +52,7 @@ def _record_route(record):
     candidates.extend(args or ())
     for value in candidates:
         if isinstance(value, str):
-            for prefix in ("/api/v2/patients/", "/api/v3/"):
+            for prefix in ("/api/v2/patients/", "/api/v3/", "/api/v4/expiry/"):
                 if prefix in value:
                     start = value.index(prefix)
                     return read_route(value[start:].split()[0])
@@ -96,7 +107,9 @@ def before_breadcrumb(crumb, hint):
         return None
     message = crumb.get("message", "")
     if isinstance(message, str) and (
-        "/api/v2/patients/" in message or "/api/v3/" in message
+        "/api/v2/patients/" in message
+        or "/api/v3/" in message
+        or "/api/v4/expiry/" in message
     ):
         return None
     return crumb
@@ -113,7 +126,26 @@ class PrivateReadPrivacyMiddleware:
         token = _read_route.set(route)
         try:
             response = self.get_response(request)
-            if response.status_code == 500:
+            if (
+                request.path.startswith("/api/v4/expiry/")
+                and response.status_code >= 400
+            ):
+                from nurse.expiry_state import ERRORS
+
+                codes = {status: code for code, (status, _) in ERRORS.items()}
+                codes[400] = "invalid_request"
+                code = codes.get(response.status_code, "internal_error")
+                # Retain closed API errors; replace Django/DEBUG HTML and 500s.
+                if response.status_code == 500 or not hasattr(response, "data"):
+                    generic = JsonResponse(
+                        {"code": code, "message": ERRORS[code][1], "fields": {}}
+                    )
+                    response.content = (
+                        b"" if request.method == "HEAD" else generic.content
+                    )
+                    response["Content-Type"] = generic["Content-Type"]
+                    response.headers.pop("Content-Length", None)
+            elif response.status_code == 500:
                 # Preserve 500 (outside the stable contract table), but never
                 # expose Django's DEBUG page or an unexpected exception body.
                 from rest_framework.exceptions import server_error
