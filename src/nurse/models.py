@@ -305,6 +305,15 @@ from nurse.expiry_models import (  # noqa: E402,F401
     ExpiryAccountState,
     ExpiryPrescriptionState,
 )
+from nurse.expiry_reminder_models import (  # noqa: E402,F401
+    ExpiryReminderAuthority,
+    ExpiryReminderEvent,
+    ExpiryReminderEventItem,
+    ExpiryReminderEventRoute,
+    ExpiryReminderOpportunity,
+    ExpiryReminderPreference,
+    ExpiryReminderTransition,
+)
 
 # Register the additive registry models exactly once with the nurse app.
 from nurse.push_models import (  # noqa: E402,F401
