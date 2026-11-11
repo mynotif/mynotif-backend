@@ -27,6 +27,15 @@ SOURCES = (
     "nurse_documentimport",
 )
 ERRORS = {
+    "revision_conflict": (409, "Les informations doivent être vérifiées à nouveau."),
+    "state_conflict": (409, "Action indisponible."),
+    "command_conflict": (409, "Intention incompatible."),
+    "command_epoch_closed": (409, "Une nouvelle vérification est requise."),
+    "reconciliation_required": (409, "Une vérification du résultat est requise."),
+    "command_abandoned": (409, "Commande clôturée sans effet."),
+    "invalid_dates": (422, "Dates incohérentes."),
+    "confirmation_required": (422, "Confirmation requise."),
+    "source_unavailable": (422, "Source indisponible."),
     "invalid_request": (400, "Paramètres invalides."),
     "invalid_cursor": (400, "Référence de pagination invalide."),
     "authentication_required": (401, "Authentification requise."),

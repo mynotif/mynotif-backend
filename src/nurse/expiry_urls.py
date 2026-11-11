@@ -12,3 +12,29 @@ urlpatterns = [
         name="expiry-prescription-detail",
     ),
 ]
+
+from nurse.expiry_command_views import (  # noqa: E402
+    ExpiryCommandDetail,
+    ExpiryCommands,
+    ExpiryDateCorrection,
+    ExpiryReconciliationFence,
+)
+
+urlpatterns += [
+    path("commands/", ExpiryCommands.as_view(), name="expiry-commands"),
+    path(
+        "commands/<str:command_id>/",
+        ExpiryCommandDetail.as_view(),
+        name="expiry-command-detail",
+    ),
+    path(
+        "commands/<str:command_id>/date-correction/",
+        ExpiryDateCorrection.as_view(),
+        name="expiry-date-correction",
+    ),
+    path(
+        "reconciliation-fence/",
+        ExpiryReconciliationFence.as_view(),
+        name="expiry-reconciliation-fence",
+    ),
+]

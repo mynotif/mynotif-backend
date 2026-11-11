@@ -17,6 +17,7 @@ from rest_framework.exceptions import (
     MethodNotAllowed,
     NotAuthenticated,
     NotFound,
+    ParseError,
     Throttled,
     UnsupportedMediaType,
     ValidationError,
@@ -27,6 +28,7 @@ from main.models import AuthToken
 from main.session_services import fingerprint
 from main.session_tokens import parse_token, verify_secret
 from nurse.expiry_calculation import classify_dates
+from nurse.expiry_command_runtime import correction_available
 from nurse.expiry_models import ExpiryPrescriptionState
 from nurse.expiry_serializers import (
     FILTERS,
@@ -277,7 +279,9 @@ class ExpiryReadView(PrivateReadView):
             error = ExpiryError("authentication_required")
         elif isinstance(exc, (NotFound, Http404)):
             error = ExpiryError("not_found")
-        elif isinstance(exc, (ValidationError, BadRequest, SuspiciousOperation)):
+        elif isinstance(
+            exc, (ValidationError, ParseError, BadRequest, SuspiciousOperation)
+        ):
             error = ExpiryError("invalid_request")
         elif isinstance(exc, MethodNotAllowed):
             error = ExpiryError("method_not_allowed")
@@ -423,7 +427,7 @@ class ExpiryPrescriptionDetail(ExpiryReadView):
                 "contract_revision": "0.2-decision",
                 "context": context,
                 "item": item,
-                "can_correct_dates": False,
+                "can_correct_dates": correction_available(),
                 "can_confirm_renewal": False,
             }
         )
