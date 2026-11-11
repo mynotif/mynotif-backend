@@ -202,7 +202,7 @@ def test_ac6_open_runtime_enables_only_correction_capability(command_setup):
         intent,
         format="json",
     )
-    reads.assert_error(response, 404, "not_found")
+    reads.assert_error(response, 503, "service_unavailable")
     assert_command(h.client.get(f"{COMMANDS}{pending['command_id']}/"), 200, "pending")
 
 

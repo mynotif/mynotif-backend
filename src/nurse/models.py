@@ -299,6 +299,7 @@ from nurse.expiry_command_models import (  # noqa: E402,F401
     ExpiryCommandJournal,
     ExpiryCorrectionAudit,
     ExpiryFutureAuthority,
+    ExpiryRenewal,
 )
 from nurse.expiry_models import (  # noqa: E402,F401
     ExpiryAccountState,

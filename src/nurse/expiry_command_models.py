@@ -34,6 +34,7 @@ class ExpiryCommand(models.Model):
     payload_hmac = models.CharField(max_length=64)
     patient_id = models.BigIntegerField()
     prescription_id = models.BigIntegerField()
+    new_prescription_id = models.BigIntegerField(null=True)
     result = models.JSONField(null=True)
     error = models.JSONField(null=True)
 
@@ -105,3 +106,35 @@ class ExpiryFutureAuthority(models.Model):
     prescription_id = models.BigIntegerField(primary_key=True)
     revision = models.UUIDField()
     generation = models.BigIntegerField(default=0)
+
+
+class ExpiryRenewal(models.Model):
+    """Clinical confirmation history, independent of technical command retention."""
+
+    command_id = models.UUIDField(unique=True)
+    user_id = models.BigIntegerField()
+    principal_incarnation = models.UUIDField()
+    origin_session_id = models.UUIDField()
+    patient_id = models.BigIntegerField()
+    old_prescription_id = models.BigIntegerField(unique=True)
+    new_prescription_id = models.BigIntegerField(unique=True)
+    recorded_at = models.DateTimeField(default=timezone.now)
+    reviewed_document_version = models.PositiveBigIntegerField()
+    patient_reviewed = models.BooleanField()
+    pages_reviewed = models.BooleanField()
+    dates_reviewed = models.BooleanField()
+    replacement_confirmed = models.BooleanField()
+    before_old_revision = models.UUIDField()
+    after_old_revision = models.UUIDField()
+    before_new_revision = models.UUIDField()
+    after_new_revision = models.UUIDField()
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=~models.Q(
+                    old_prescription_id=models.F("new_prescription_id")
+                ),
+                name="expiry_renewal_distinct_objects",
+            ),
+        ]

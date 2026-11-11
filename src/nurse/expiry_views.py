@@ -6,8 +6,17 @@ from datetime import date, timedelta
 
 from django.core.exceptions import BadRequest, SuspiciousOperation
 from django.core.files.storage import default_storage
-from django.db import DatabaseError
-from django.db.models import F, OuterRef, Prefetch, Q, Subquery
+from django.db import DatabaseError, connection
+from django.db.models import (
+    BigIntegerField,
+    DateTimeField,
+    F,
+    OuterRef,
+    Prefetch,
+    Q,
+    Subquery,
+    Value,
+)
 from django.http import Http404
 from django.utils import timezone
 from drf_spectacular.utils import OpenApiParameter, extend_schema
@@ -28,7 +37,9 @@ from main.models import AuthToken
 from main.session_services import fingerprint
 from main.session_tokens import parse_token, verify_secret
 from nurse.expiry_calculation import classify_dates
-from nurse.expiry_command_runtime import correction_available
+from nurse.expiry_command_guards import verify_renewal_projection_guards
+from nurse.expiry_command_models import ExpiryRenewal
+from nurse.expiry_command_runtime import correction_available, renewal_available
 from nurse.expiry_models import ExpiryPrescriptionState
 from nurse.expiry_serializers import (
     FILTERS,
@@ -106,6 +117,29 @@ def read_session(request):
     return user, token
 
 
+def renewal_schema_present():
+    tables = set(connection.introspection.table_names())
+    present = ExpiryRenewal._meta.db_table in tables
+    archived = "nurse_expiryrenewal_retained" in tables
+    if present and archived:
+        raise ExpiryError("service_unavailable")
+    if present:
+        verify_renewal_projection_guards()
+    else:
+        with connection.cursor() as cursor:
+            if archived:
+                cursor.execute("SELECT 1 FROM nurse_expiryrenewal_retained LIMIT 1")
+                if cursor.fetchone() is not None:
+                    raise ExpiryError("service_unavailable")
+            cursor.execute(
+                "SELECT 1 FROM django_migrations WHERE app=%s AND name=%s",
+                ["nurse", "0024_expiry_renewals"],
+            )
+            if cursor.fetchone() is not None:
+                raise ExpiryError("service_unavailable")
+    return present
+
+
 def authorized_rows(user_id):
     nurse = Nurse.objects.filter(user_id=user_id).values_list("pk", flat=True).first()
     if nurse is None:
@@ -122,6 +156,25 @@ def authorized_rows(user_id):
             )
         )[:1]
     )
+    # Parent reads remain available before the additive schema is installed.
+    # A retained clinical table always requires its AFTER projection guards.
+    renewal_fields = {
+        "expiry_replacement_id": Value(None, output_field=BigIntegerField()),
+        "expiry_confirmed_at": Value(None, output_field=DateTimeField()),
+    }
+    if renewal_schema_present():
+        renewal_fields = {
+            "expiry_replacement_id": Subquery(
+                ExpiryRenewal.objects.filter(old_prescription_id=OuterRef("pk")).values(
+                    "new_prescription_id"
+                )[:1]
+            ),
+            "expiry_confirmed_at": Subquery(
+                ExpiryRenewal.objects.filter(old_prescription_id=OuterRef("pk")).values(
+                    "recorded_at"
+                )[:1]
+            ),
+        }
     return (
         rows.select_related("patient")
         .only(
@@ -136,11 +189,12 @@ def authorized_rows(user_id):
             "patient__lastname",
         )
         .annotate(
+            **renewal_fields,
             expiry_revision=Subquery(
                 ExpiryPrescriptionState.objects.filter(
                     prescription_id=OuterRef("pk")
                 ).values("revision")[:1]
-            )
+            ),
         )
         .prefetch_related(
             Prefetch(
@@ -159,12 +213,13 @@ def filtered_rows(rows, name, day):
     valid_today = valid_dates & Q(start_date__lte=day, end_date__gte=day)
     filters = {
         "all": Q(),
-        "to_renew": valid_today & Q(end_date__lte=day + timedelta(days=10)),
+        "to_renew": valid_today
+        & Q(end_date__lte=day + timedelta(days=10), expiry_replacement_id__isnull=True),
         "expired": valid_dates & Q(end_date__lt=day),
         "unknown": Q(start_date__isnull=True) | Q(end_date__isnull=True),
         "future": valid_dates & Q(start_date__gt=day),
         "invalid": invalid,
-        "renewed": Q(pk__in=[]),
+        "renewed": Q(expiry_replacement_id__isnull=False),
     }
     return rows.filter(filters[name])
 
@@ -247,6 +302,14 @@ def item_data(row, day):
         or not 1 <= row.patient_id <= 9007199254740991
     ):
         raise ExpiryError("service_unavailable")
+    replacement = None
+    dates = classify_dates(row.start_date, row.end_date, day)
+    if row.expiry_replacement_id is not None:
+        replacement = {
+            "prescription_id": row.expiry_replacement_id,
+            "confirmed_at": row.expiry_confirmed_at.isoformat().replace("+00:00", "Z"),
+        }
+        dates.update(to_renew=False, proximity="none")
     return {
         "id": row.pk,
         "patient": {
@@ -258,9 +321,9 @@ def item_data(row, day):
         "start_date": row.start_date.isoformat() if row.start_date else None,
         "end_date": row.end_date.isoformat() if row.end_date else None,
         "revision": str(row.expiry_revision),
-        **classify_dates(row.start_date, row.end_date, day),
-        "followup_state": "to_process",
-        "replacement": None,
+        **dates,
+        "followup_state": "renewed" if replacement else "to_process",
+        "replacement": replacement,
         "document_version": document_version(row),
     }
 
@@ -329,6 +392,7 @@ class ExpiryReadView(PrivateReadView):
             or token.pk != original_token.pk
         ):
             raise ExpiryError("authentication_required")
+        renewal_schema_present()
         finish_read(request.user.pk, state, context)
 
     def options(self, request, **kwargs):
@@ -427,7 +491,9 @@ class ExpiryPrescriptionDetail(ExpiryReadView):
                 "contract_revision": "0.2-decision",
                 "context": context,
                 "item": item,
-                "can_correct_dates": correction_available(),
-                "can_confirm_renewal": False,
+                "can_correct_dates": row.expiry_replacement_id is None
+                and correction_available(),
+                "can_confirm_renewal": row.expiry_replacement_id is None
+                and renewal_available(),
             }
         )

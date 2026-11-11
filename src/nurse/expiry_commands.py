@@ -11,7 +11,7 @@ from datetime import date, timedelta
 
 from django.contrib.auth import get_user_model
 from django.db import transaction
-from django.db.models import Exists, OuterRef
+from django.db.models import Exists, OuterRef, Q
 from django.utils import timezone
 from rest_framework.authentication import get_authorization_header
 
@@ -32,9 +32,10 @@ from nurse.expiry_command_models import (
     ExpiryCommandJournal,
     ExpiryCorrectionAudit,
     ExpiryFutureAuthority,
+    ExpiryRenewal,
 )
 from nurse.expiry_command_runtime import external_namespace, runtime
-from nurse.expiry_command_serializers import ExpiryCorrectionSerializer
+from nurse.expiry_command_serializers import INTENT_SERIALIZERS
 from nurse.expiry_models import ExpiryAccountState, ExpiryPrescriptionState
 from nurse.expiry_state import (
     ExpiryError,
@@ -45,6 +46,10 @@ from nurse.expiry_state import (
 from nurse.models import Nurse, Patient, Prescription
 
 User = get_user_model()
+PRIMARY_OBJECT_FIELDS = {
+    "date_correction": "prescription_id",
+    "renewal_confirmation": "old_prescription_id",
+}
 
 
 @contextmanager
@@ -146,6 +151,16 @@ def lock_object(user_id, patient_id, prescription_id):
     return row
 
 
+def lock_objects(user_id, patient_id, prescription_id, new_prescription_id=None):
+    identifiers = {prescription_id}
+    if new_prescription_id is not None:
+        identifiers.add(new_prescription_id)
+    return {
+        identifier: lock_object(user_id, patient_id, identifier)
+        for identifier in sorted(identifiers)
+    }
+
+
 def accessible_commands(user_id, incarnation):
     nurse = Nurse.objects.filter(user_id=user_id).first()
     if nurse is None:
@@ -155,8 +170,14 @@ def accessible_commands(user_id, incarnation):
         patient_id=OuterRef("patient_id"),
         patient__nurse=nurse,
     )
+    secondary = Prescription.objects.filter(
+        pk=OuterRef("new_prescription_id"),
+        patient_id=OuterRef("patient_id"),
+        patient__nurse=nurse,
+    )
     return ExpiryCommand.objects.filter(
         Exists(allowed),
+        Q(new_prescription_id__isnull=True) | Exists(secondary),
         user_id=user_id,
         principal_incarnation=incarnation,
     )
@@ -179,15 +200,21 @@ def lookup_command(user_id, incarnation, command_id, lock=False):
 
 
 @transaction.atomic
-def admit_command(request, intent):
+def admit_command(request, intent, kind="date_correction"):
     acquire_authority()
-    namespace, version = runtime()
+    namespace, version = runtime(kind)
     user, session, state = active_context(request)
-    lock_object(user.pk, intent["patient_id"], intent["prescription_id"])
+    primary_key = PRIMARY_OBJECT_FIELDS[kind]
+    prescription_id = intent[primary_key]
+    new_prescription_id = intent.get("new_prescription_id")
+    objects = lock_objects(
+        user.pk, intent["patient_id"], prescription_id, new_prescription_id
+    )
     if intent["mutation_epoch"] != str(state.mutation_epoch):
         raise ExpiryError("command_epoch_closed")
     if ExpiryCommand.objects.filter(
-        prescription_id=intent["prescription_id"], state="pending"
+        Q(prescription_id__in=objects) | Q(new_prescription_id__in=objects),
+        state="pending",
     ).exists():
         raise ExpiryError("reconciliation_required")
     row = ExpiryCommand(
@@ -199,10 +226,11 @@ def admit_command(request, intent):
         namespace=namespace,
         origin_session_id=session.pk,
         mutation_epoch=state.mutation_epoch,
-        kind="date_correction",
+        kind=kind,
         key_version=version,
         patient_id=intent["patient_id"],
-        prescription_id=intent["prescription_id"],
+        prescription_id=prescription_id,
+        new_prescription_id=new_prescription_id,
     )
     seal(row, intent)
     active_context(request)
@@ -227,32 +255,37 @@ def terminal(row, *, result=None, error=None):
 def authorized_terminal(request, row, **outcome):
     data = terminal(row, **outcome)
     # Row locks stop revocations; they do not stop token/session time advancing.
-    runtime()
+    runtime(row.kind)
     active_context(request)
     return data
 
 
 @transaction.atomic
-def execute_command(request, command_id, intent):
+def execute_command(request, command_id, intent, kind="date_correction"):
     acquire_authority()
-    runtime()
+    runtime(kind)
     user, session, state = active_context(request)
     # Lookup never admits, and access to stored objects precedes intent diagnostics.
     row = lookup_command(user.pk, state.incarnation, command_id)
-    prescription = lock_object(user.pk, row.patient_id, row.prescription_id)
+    objects = lock_objects(
+        user.pk, row.patient_id, row.prescription_id, row.new_prescription_id
+    )
+    prescription = objects[row.prescription_id]
     row = lookup_command(user.pk, state.incarnation, command_id, lock=True)
-    if row.kind != "date_correction" or not matches(row, intent):
+    if row.kind != kind or not matches(row, intent):
         raise ExpiryError("command_conflict")
     if row.state != "pending":
         active_context(request)
         return command_data(row)
     admitted = unseal(row)
-    schema = ExpiryCorrectionSerializer(data=admitted)
+    schema = INTENT_SERIALIZERS[kind](data=admitted)
+    primary_key = PRIMARY_OBJECT_FIELDS[kind]
     if (
         not schema.is_valid()
         or schema.validated_data != admitted
         or admitted["patient_id"] != row.patient_id
-        or admitted["prescription_id"] != row.prescription_id
+        or admitted[primary_key] != row.prescription_id
+        or admitted.get("new_prescription_id") != row.new_prescription_id
         or admitted["mutation_epoch"] != str(row.mutation_epoch)
     ):
         raise ExpiryError("service_unavailable")
@@ -263,6 +296,11 @@ def execute_command(request, command_id, intent):
         raise ExpiryError("command_epoch_closed")
     if session.pk != row.origin_session_id:
         raise ExpiryError("reconciliation_required")
+    if kind == "renewal_confirmation":
+        from nurse.expiry_renewals import apply_renewal
+
+        outcome = apply_renewal(row, objects, admitted)
+        return authorized_terminal(request, row, **outcome)
     current = (
         ExpiryPrescriptionState.objects.select_for_update()
         .filter(prescription_id=prescription.pk)
@@ -273,6 +311,8 @@ def execute_command(request, command_id, intent):
     active_context(request)
     if str(current.revision) != admitted["expected_revision"]:
         return authorized_terminal(request, row, error="revision_conflict")
+    if ExpiryRenewal.objects.filter(old_prescription_id=prescription.pk).exists():
+        return authorized_terminal(request, row, error="state_conflict")
     start, end = admitted["start_date"], admitted["end_date"]
     if start is not None and end is not None and start > end:
         return authorized_terminal(request, row, error="invalid_dates")
@@ -331,7 +371,11 @@ def lock_abandoned(row):
     )
     Nurse.objects.select_for_update().filter(user_id=row.user_id).first()
     Patient.objects.select_for_update().filter(pk=row.patient_id).first()
-    Prescription.objects.select_for_update().filter(pk=row.prescription_id).first()
+    list(
+        Prescription.objects.select_for_update()
+        .filter(pk__in=[row.prescription_id, row.new_prescription_id])
+        .order_by("pk")
+    )
     locked = ExpiryCommand.objects.select_for_update().get(pk=row.pk)
     if locked.state == "pending":
         terminal(locked, error="command_abandoned")

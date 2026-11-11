@@ -8,6 +8,7 @@ from io import StringIO
 
 import pytest
 from django.core.management import call_command
+from django.db import connection, transaction
 from django.utils import timezone
 from freezegun import freeze_time
 
@@ -267,8 +268,6 @@ def test_maintenance_sql_logs_and_sentry_are_private(
 ):
     import logging
 
-    from django.db import connection
-
     from nurse.read_privacy import before_breadcrumb, before_send
 
     h, rx = command_setup()
@@ -371,3 +370,238 @@ def test_restore_namespace_prevents_reference_reissue_with_repeated_allocator_en
         .objects.filter(command_id=old["command_id"])
         .exists()
     )
+
+
+@pytest.fixture
+def renewal_sql_setup(command_setup, settings):
+    from tests.nurse import test_expiry_renewals as renewals
+
+    settings.EXPIRY_RENEWALS_ENABLED = True
+    account, old = command_setup()
+    new = account.prescription()
+    renewals.make_source(account, new)
+    other = renewals.reads.ExpiryAccount()
+    other.nurse.patients.add(account.patient)
+    renewals.confirm(account, old, new)
+    return renewals, account, other, old, new
+
+
+@pytest.mark.parametrize(
+    "writer",
+    [
+        "update",
+        "delete",
+        pytest.param(
+            "truncate",
+            marks=pytest.mark.skipif(
+                connection.vendor != "postgresql",
+                reason="PostgreSQL statement-level TRUNCATE projection",
+            ),
+        ),
+    ],
+)
+def test_rm5_raw_renewal_writers_invalidate_both_objects_and_account_collections(
+    renewal_sql_setup, writer
+):
+    """Integrity probes with synthetic SQL do not authorize clinical erasure."""
+    renewals, account, other, old, new = renewal_sql_setup
+    before = renewals.snapshot(account, old, new)
+    other_before = other.page()["context"]["collection_revision"]
+    table = connection.ops.quote_name(renewals.relation_model()._meta.db_table)
+    statements = {
+        "update": f"UPDATE {table} SET recorded_at=recorded_at",
+        "delete": f"DELETE FROM {table}",
+        "truncate": f"TRUNCATE {table}",
+    }
+    with connection.cursor() as cursor:
+        cursor.execute(statements[writer])
+    after = renewals.snapshot(account, old, new)
+    assert after["clinical"] == before["clinical"]
+    assert (
+        after["context"]["collection_revision"]
+        != before["context"]["collection_revision"]
+    )
+    assert other.page()["context"]["collection_revision"] != other_before
+    for previous, current in zip(before["items"], after["items"], strict=True):
+        assert previous["revision"] != current["revision"]
+        future = command_model("ExpiryFutureAuthority").objects.get(
+            prescription_id=current["id"]
+        )
+        assert str(future.revision) == current["revision"]
+
+
+def test_rm5_missing_renewal_projection_guard_closes_reads_and_admission(
+    renewal_sql_setup,
+):
+    renewals, account, other, old, new = renewal_sql_setup
+    intent = renewals.renewal(account, old, new)
+    table = connection.ops.quote_name(renewals.relation_model()._meta.db_table)
+    with transaction.atomic():
+        with connection.cursor() as cursor:
+            if connection.vendor == "postgresql":
+                cursor.execute(
+                    f"ALTER TABLE {table} DISABLE TRIGGER expiry_renewal_update"
+                )
+            else:
+                cursor.execute("DROP TRIGGER expiry_renewal_update")
+        assert_error(account.detail(old), 503, "service_unavailable")
+        assert_error(renewals.post(account, intent), 503, "service_unavailable")
+        transaction.set_rollback(True)
+    assert account.detail(old).status_code == 200
+
+
+def test_rm5_missing_installed_renewal_table_cannot_hide_clinical_history(
+    renewal_sql_setup,
+):
+    renewals, account, other, old, new = renewal_sql_setup
+    table = connection.ops.quote_name(renewals.relation_model()._meta.db_table)
+    with transaction.atomic():
+        with connection.cursor() as cursor:
+            cursor.execute(f"DROP TABLE {table}")
+        assert_error(account.detail(old), 503, "service_unavailable")
+        transaction.set_rollback(True)
+    assert account.detail(old).json()["item"]["followup_state"] == "renewed"
+
+
+def test_rm5_archived_renewal_history_closes_parent_reads_until_restored(
+    renewal_sql_setup,
+):
+    from django.db.migrations.executor import MigrationExecutor
+
+    renewals, account, other, old, new = renewal_sql_setup
+    history = list(renewals.relation_model().objects.values())
+    try:
+        MigrationExecutor(connection).migrate([("nurse", "0023_expiry_command_guards")])
+        assert "nurse_expiryrenewal_retained" in connection.introspection.table_names()
+        assert_error(account.detail(old), 503, "service_unavailable")
+        assert_error(
+            account.client.get(renewals.reads.LIST), 503, "service_unavailable"
+        )
+    finally:
+        executor = MigrationExecutor(connection)
+        executor.migrate(executor.loader.graph.leaf_nodes())
+    assert list(renewals.relation_model().objects.values()) == history
+    assert account.detail(old).json()["item"]["followup_state"] == "renewed"
+
+
+RELATION_BARRIER_FAILURES = [
+    (event, "drop") for event in ("insert", "update", "delete")
+]
+if connection.vendor == "postgresql":
+    RELATION_BARRIER_FAILURES += [("truncate", "drop")] + [
+        (event, "disable") for event in ("insert", "update", "delete", "truncate")
+    ]
+
+
+@pytest.mark.parametrize("event,failure", RELATION_BARRIER_FAILURES)
+def test_m1_relation_barrier_failure_closes_both_command_kinds_without_effect(
+    command_setup, settings, event, failure
+):
+    from tests.nurse import test_expiry_renewals as renewals
+
+    settings.EXPIRY_RENEWALS_ENABLED = True
+    account, correction_rx = command_setup()
+    old, new = account.prescription(), account.prescription()
+    renewals.make_source(account, new)
+    correction_intent = correction(account, correction_rx, end_date="2026-05-02")
+    correction_pending = admit(account, correction_intent)
+    renewal_intent = renewals.renewal(account, old, new)
+    renewal_pending = renewals.admit(account, renewal_intent)
+
+    def persisted():
+        return {
+            name: list(command_model(name).objects.order_by("pk").values())
+            for name in (
+                "Prescription",
+                "ExpiryPrescriptionState",
+                "ExpiryFutureAuthority",
+                "ExpiryAccountState",
+                "ExpiryCommand",
+                "ExpiryCommandJournal",
+                "ExpiryCorrectionAudit",
+                "ExpiryRenewal",
+            )
+        }
+
+    before = persisted()
+    table = connection.ops.quote_name("nurse_expiryrenewal")
+    trigger = connection.ops.quote_name(f"expiry_cmd_nurse_expiryrenewal_{event}")
+    with transaction.atomic():
+        with connection.cursor() as cursor:
+            if failure == "disable":
+                cursor.execute(f"ALTER TABLE {table} DISABLE TRIGGER {trigger}")
+            else:
+                suffix = f" ON {table}" if connection.vendor == "postgresql" else ""
+                cursor.execute(f"DROP TRIGGER {trigger}{suffix}")
+        detail = account.detail(correction_rx)
+        assert detail.status_code == 200
+        assert detail.json()["can_correct_dates"] is False
+        assert detail.json()["can_confirm_renewal"] is False
+        assert_error(
+            account.client.post(
+                COMMANDS,
+                {"kind": "date_correction", "intent": correction_intent},
+                format="json",
+            ),
+            503,
+            "service_unavailable",
+        )
+        assert_error(
+            execute(account, correction_pending, correction_intent),
+            503,
+            "service_unavailable",
+        )
+        assert_error(renewals.post(account, renewal_intent), 503, "service_unavailable")
+        assert_error(
+            renewals.execute(account, renewal_pending, renewal_intent),
+            503,
+            "service_unavailable",
+        )
+        assert persisted() == before
+        transaction.set_rollback(True)
+    assert persisted() == before
+    assert account.detail(correction_rx).json()["can_correct_dates"] is True
+    assert_command(
+        execute(account, correction_pending, correction_intent), 200, "succeeded"
+    )
+    renewals.assert_command(
+        renewals.execute(account, renewal_pending, renewal_intent), 200, "succeeded"
+    )
+
+
+def test_m1_intact_relation_guards_keep_correction_open_with_renewal_flag_off(
+    command_setup, settings
+):
+    settings.EXPIRY_RENEWALS_ENABLED = False
+    account, rx = command_setup()
+    detail = account.detail(rx).json()
+    assert detail["can_correct_dates"] is True
+    assert detail["can_confirm_renewal"] is False
+    intent = correction(account, rx, end_date="2026-05-02")
+    pending = admit(account, intent)
+    assert_command(execute(account, pending, intent), 200, "succeeded")
+    rx.refresh_from_db()
+    assert rx.end_date.isoformat() == "2026-05-02"
+
+
+def test_m1_genuine_parent_schema_keeps_correction_runtime_and_reads_available(
+    command_setup,
+):
+    from django.db.migrations.executor import MigrationExecutor
+
+    from nurse.expiry_command_runtime import correction_available
+
+    account, rx = command_setup()
+    try:
+        MigrationExecutor(connection).migrate([("nurse", "0023_expiry_command_guards")])
+        assert "nurse_expiryrenewal" not in connection.introspection.table_names()
+        commands.open_runtime()
+        assert correction_available() is True
+        detail = account.detail(rx)
+        assert detail.status_code == 200
+        assert detail.json()["can_correct_dates"] is True
+        assert detail.json()["can_confirm_renewal"] is False
+        assert account.page()["count"] == 1
+    finally:
+        executor = MigrationExecutor(connection)
+        executor.migrate(executor.loader.graph.leaf_nodes())
