@@ -157,6 +157,7 @@ class ExpiryAccount:
 @pytest.fixture
 def expiry_settings(settings, tmp_path):
     settings.EXPIRY_COMMANDS_ENABLED = False
+    settings.EXPIRY_RENEWALS_ENABLED = False
     settings.PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
     settings.MEDIA_ROOT = str(tmp_path)
     settings.STORAGES = {
@@ -694,6 +695,7 @@ def test_closed_runtime_and_openapi_expose_additive_correction_contract(expiry_s
         ROOT + "commands/",
         ROOT + "commands/{command_id}/",
         ROOT + "commands/{command_id}/date-correction/",
+        ROOT + "commands/{command_id}/renewal-confirmation/",
         ROOT + "reconciliation-fence/",
     }
     assert {path: set(operations) for path, operations in paths.items()} == {
@@ -702,6 +704,7 @@ def test_closed_runtime_and_openapi_expose_additive_correction_contract(expiry_s
         ROOT + "commands/": {"get", "post"},
         ROOT + "commands/{command_id}/": {"get"},
         ROOT + "commands/{command_id}/date-correction/": {"put"},
+        ROOT + "commands/{command_id}/renewal-confirmation/": {"put"},
         ROOT + "reconciliation-fence/": {"post"},
     }
     operation = paths[LIST]["get"]
@@ -744,9 +747,12 @@ def test_closed_runtime_and_openapi_expose_additive_correction_contract(expiry_s
         body = resolve(
             operation["requestBody"]["content"]["application/json"]["schema"]
         )
-        assert set(body.get("properties", {})) == keys
-        assert set(body.get("required", [])) == keys
-        assert body["additionalProperties"] is False
+        variants = body.get("oneOf", [body])
+        for variant in variants:
+            variant = resolve(variant)
+            assert set(variant.get("properties", {})) == keys
+            assert set(variant.get("required", [])) == keys
+            assert variant["additionalProperties"] is False
     put = paths[ROOT + "commands/{command_id}/date-correction/"]["put"]
     result = resolve(put["responses"]["200"]["content"]["application/json"]["schema"])
     assert set(result["properties"]) == {

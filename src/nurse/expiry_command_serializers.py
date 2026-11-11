@@ -5,6 +5,7 @@ import re
 from datetime import date
 
 from django.core.validators import MaxLengthValidator
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 from rest_framework.exceptions import ParseError
 from rest_framework.parsers import JSONParser
@@ -81,9 +82,69 @@ class ExpiryCorrectionSerializer(ClosedSerializer):
     end_date = Civil(allow_null=True)
 
 
-class ExpiryAdmissionSerializer(ClosedSerializer):
+class PositiveDocumentVersion(serializers.IntegerField):
+    def __init__(self, **kwargs):
+        super().__init__(min_value=1, **kwargs)
+
+    def to_internal_value(self, data):
+        if type(data) is not int:
+            self.fail("invalid")
+        return super().to_internal_value(data)
+
+
+@extend_schema_field({"type": "boolean", "enum": [True]})
+class HumanConfirmation(serializers.BooleanField):
+    def to_internal_value(self, data):
+        if data is not True:
+            self.fail("invalid")
+        return True
+
+
+class ExpiryRenewalSerializer(ClosedSerializer):
+    mutation_epoch = Revision()
+    patient_id = StrictId()
+    old_prescription_id = StrictId()
+    new_prescription_id = StrictId()
+    expected_old_revision = Revision()
+    expected_new_revision = Revision()
+    reviewed_document_version = PositiveDocumentVersion()
+    patient_reviewed = HumanConfirmation()
+    pages_reviewed = HumanConfirmation()
+    dates_reviewed = HumanConfirmation()
+    replacement_confirmed = HumanConfirmation()
+
+    def validate(self, attrs):
+        if attrs["old_prescription_id"] == attrs["new_prescription_id"]:
+            raise serializers.ValidationError("invalid")
+        return attrs
+
+
+INTENT_SERIALIZERS = {
+    "date_correction": ExpiryCorrectionSerializer,
+    "renewal_confirmation": ExpiryRenewalSerializer,
+}
+
+
+class ExpiryCorrectionAdmissionSerializer(ClosedSerializer):
     kind = serializers.ChoiceField(choices=("date_correction",))
     intent = ExpiryCorrectionSerializer()
+
+
+class ExpiryRenewalAdmissionSerializer(ClosedSerializer):
+    kind = serializers.ChoiceField(choices=("renewal_confirmation",))
+    intent = ExpiryRenewalSerializer()
+
+
+class ExpiryAdmissionSerializer(ClosedSerializer):
+    kind = serializers.ChoiceField(choices=tuple(INTENT_SERIALIZERS))
+    intent = serializers.JSONField()
+
+    def validate(self, attrs):
+        schema = INTENT_SERIALIZERS[attrs["kind"]](data=attrs["intent"])
+        if not schema.is_valid():
+            raise serializers.ValidationError({"intent": "invalid"})
+        attrs["intent"] = schema.validated_data
+        return attrs
 
 
 class ExpiryFenceRequestSerializer(ClosedSerializer):
@@ -101,7 +162,7 @@ class ExpiryCommandResultSerializer(serializers.Serializer):
 class ExpiryCommandSerializer(serializers.Serializer):
     command_id = serializers.UUIDField()
     mutation_epoch = Revision()
-    kind = serializers.ChoiceField(choices=("date_correction",))
+    kind = serializers.ChoiceField(choices=tuple(INTENT_SERIALIZERS))
     state = serializers.ChoiceField(choices=("pending", "succeeded", "rejected"))
     recorded_at = serializers.DateTimeField()
     result = ExpiryCommandResultSerializer(allow_null=True)

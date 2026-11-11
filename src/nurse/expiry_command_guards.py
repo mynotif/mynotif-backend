@@ -26,6 +26,38 @@ def verify_command_guards():
         (f"expiry_cmd_future_{event}", "nurse_expiryprescriptionstate", event, "after")
         for event in EVENTS
     }
+    verify_installed(expected)
+
+
+def verify_renewal_guards():
+    postgres = connection.vendor == "postgresql"
+    events = (*EVENTS, "truncate") if postgres else EVENTS
+    expected = {
+        (
+            f"expiry_cmd_nurse_expiryrenewal_{event}",
+            "nurse_expiryrenewal",
+            event,
+            "before",
+        )
+        for event in events
+    } | renewal_projection_guards()
+    verify_installed(expected)
+
+
+def renewal_projection_guards():
+    events = (*EVENTS, "truncate") if connection.vendor == "postgresql" else EVENTS
+    return {
+        (f"expiry_renewal_{event}", "nurse_expiryrenewal", event, "after")
+        for event in events
+    }
+
+
+def verify_renewal_projection_guards():
+    verify_installed(renewal_projection_guards())
+
+
+def verify_installed(expected):
+    postgres = connection.vendor == "postgresql"
     with connection.cursor() as cursor:
         if postgres:
             cursor.execute(
@@ -38,7 +70,7 @@ def verify_command_guards():
                 "AND t.tgattr::text=''"
             )
             before_types = {6: "insert", 18: "update", 10: "delete", 34: "truncate"}
-            after_types = {5: "insert", 17: "update", 9: "delete"}
+            after_types = {5: "insert", 17: "update", 9: "delete", 32: "truncate"}
             present = set()
             for name, table, kind, function in cursor.fetchall():
                 if kind in before_types and function == "expiry_command_barrier":

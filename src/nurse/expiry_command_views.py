@@ -1,15 +1,23 @@
 """Private correction endpoints. GET observes; only explicit POST/PUT write."""
 
-from drf_spectacular.utils import OpenApiParameter, extend_schema
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    PolymorphicProxySerializer,
+    extend_schema,
+)
 from rest_framework.response import Response
 
+from nurse.expiry_command_runtime import runtime
 from nurse.expiry_command_serializers import (
     ExpiryAdmissionSerializer,
     ExpiryCommandPageSerializer,
     ExpiryCommandSerializer,
+    ExpiryCorrectionAdmissionSerializer,
     ExpiryCorrectionSerializer,
     ExpiryFenceRequestSerializer,
     ExpiryFenceSerializer,
+    ExpiryRenewalAdmissionSerializer,
+    ExpiryRenewalSerializer,
     StrictJSONParser,
 )
 from nurse.expiry_commands import (
@@ -110,12 +118,21 @@ class ExpiryCommands(ExpiryCommandView):
 
     @extend_schema(
         operation_id="v4_expiry_commands_create",
-        request=ExpiryAdmissionSerializer,
+        request=PolymorphicProxySerializer(
+            component_name="ExpiryAdmission",
+            serializers=[
+                ExpiryCorrectionAdmissionSerializer,
+                ExpiryRenewalAdmissionSerializer,
+            ],
+            resource_type_field_name=None,
+        ),
         responses={201: ExpiryCommandSerializer, **ERROR_RESPONSES},
     )
     def post(self, request):
         body = self.body(request, ExpiryAdmissionSerializer)
-        return Response(admit_command(request, body["intent"]), status=201)
+        return Response(
+            admit_command(request, body["intent"], body["kind"]), status=201
+        )
 
 
 class ExpiryCommandDetail(ExpiryCommandView):
@@ -156,6 +173,27 @@ class ExpiryDateCorrection(ExpiryCommandView):
     def put(self, request, command_id):
         intent = self.body(request, ExpiryCorrectionSerializer)
         return Response(execute_command(request, command_id, intent))
+
+
+class ExpiryRenewalConfirmation(ExpiryCommandView):
+    http_method_names = ["put", "options"]
+
+    @extend_schema(
+        operation_id="v4_expiry_renewal_confirmation",
+        parameters=COMMAND_PARAMETER,
+        request=ExpiryRenewalSerializer,
+        responses={
+            200: ExpiryCommandSerializer,
+            202: ExpiryCommandSerializer,
+            **ERROR_RESPONSES,
+        },
+    )
+    def put(self, request, command_id):
+        runtime("renewal_confirmation")
+        intent = self.body(request, ExpiryRenewalSerializer)
+        return Response(
+            execute_command(request, command_id, intent, "renewal_confirmation")
+        )
 
 
 class ExpiryReconciliationFence(ExpiryCommandView):
