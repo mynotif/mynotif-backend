@@ -205,3 +205,35 @@ def test_v3_dispatch_forwards_options_to_object_authorization_handler():
     assert response.data == {"allowed_methods": "GET, HEAD, POST, OPTIONS"}
     forwarded = import_module.return_value.dispatch.call_args.args[1]
     assert forwarded.method == "OPTIONS"
+
+
+@pytest.mark.parametrize(
+    "path,skeleton",
+    [
+        ("/api/v4/expiry/prescriptions/", "/api/v4/expiry/prescriptions/"),
+        (
+            "/api/v4/expiry/patients/913579/prescriptions/824680/",
+            "/api/v4/expiry/patients/{patient_id}/prescriptions/{prescription_id}/",
+        ),
+    ],
+)
+def test_expiry_routes_redact_identifiers_and_sentry(path, skeleton, caplog):
+    assert read_route(path + "?cursor=" + MARKER) == skeleton
+    request = RequestFactory().get(path + "?cursor=" + MARKER)
+    caplog.set_level(logging.DEBUG)
+
+    def response(req):
+        logging.getLogger("django.request").warning(
+            "GET %s", request.get_full_path(), extra={"request": req}
+        )
+        url = "https://test.invalid" + request.get_full_path()
+        event = {"request": {"url": url}}
+        assert before_send(event, {}) is None
+        assert (
+            before_breadcrumb({"message": "GET " + event["request"]["url"]}, {}) is None
+        )
+        return HttpResponse(status=503)
+
+    PrivateReadPrivacyMiddleware(response)(request)
+    assert MARKER not in caplog.text
+    assert "913579" not in caplog.text and "824680" not in caplog.text
